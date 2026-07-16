@@ -1,0 +1,9 @@
+flask>=3.0
+requests>=2.31
+beautifulsoup4>=4.12
+yt-dlp>=2024.1.1
+psutil>=5.9
+# Optional for torrent support — install ONE of:
+#   pip install lbry-libtorrent
+#   OR install aria2c from https://aria2.github.io and add to PATH
+Pillow>=9.0

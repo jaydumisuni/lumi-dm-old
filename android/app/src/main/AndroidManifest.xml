@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Network -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Storage — legacy write on API < 29; full access on API 30+ -->
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <!-- Required for writing to public Downloads folder on Android 11+ (API 30+) -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- Foreground service -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
+    <!-- Runtime notification permission (Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Auto-restart after reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.LumiDM"
+        android:usesCleartextTraffic="true"
+        android:requestLegacyExternalStorage="true">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden|smallestScreenSize|screenLayout"
+            android:launchMode="singleTop">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- Share URLs / text from browser / other apps -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Intercept file downloads by MIME type.
+                 When Chrome is about to download one of these types, Android
+                 will offer "Open with Lumi DM" (or launch us directly
+                 if we are set as the default handler). -->
+            <intent-filter android:label="Download with Lumi DM">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <!-- Archives / installers -->
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-rar-compressed" />
+                <data android:mimeType="application/x-7z-compressed" />
+                <data android:mimeType="application/x-tar" />
+                <data android:mimeType="application/gzip" />
+                <data android:mimeType="application/vnd.android.package-archive" />
+                <data android:mimeType="application/octet-stream" />
+                <!-- Documents -->
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/epub+zip" />
+                <data android:mimeType="application/x-bittorrent" />
+                <!-- Video -->
+                <data android:mimeType="video/mp4" />
+                <data android:mimeType="video/x-matroska" />
+                <data android:mimeType="video/webm" />
+                <data android:mimeType="video/x-msvideo" />
+                <data android:mimeType="video/quicktime" />
+                <!-- Audio -->
+                <data android:mimeType="audio/mpeg" />
+                <data android:mimeType="audio/flac" />
+                <data android:mimeType="audio/x-wav" />
+                <data android:mimeType="audio/aac" />
+                <data android:mimeType="audio/ogg" />
+                <!-- Images (large) -->
+                <data android:mimeType="application/x-iso9660-image" />
+            </intent-filter>
+
+            <!-- Intercept magnet links -->
+            <intent-filter android:label="Download with Lumi DM">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="magnet" />
+            </intent-filter>
+
+            <!-- Intercept YouTube and other video platform links.
+                 When user taps a YouTube link and Lumi DM is selected,
+                 the URL goes straight into video analysis. -->
+            <intent-filter android:label="Download video with Lumi DM">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="www.youtube.com" />
+                <data android:scheme="https" android:host="youtube.com" />
+                <data android:scheme="https" android:host="youtu.be" />
+                <data android:scheme="https" android:host="m.youtube.com" />
+                <data android:scheme="https" android:host="www.vimeo.com" />
+                <data android:scheme="https" android:host="vimeo.com" />
+                <data android:scheme="https" android:host="www.dailymotion.com" />
+                <data android:scheme="https" android:host="dailymotion.com" />
+                <data android:scheme="https" android:host="www.tiktok.com" />
+                <data android:scheme="https" android:host="vm.tiktok.com" />
+                <data android:scheme="https" android:host="twitter.com" />
+                <data android:scheme="https" android:host="x.com" />
+                <data android:scheme="https" android:host="www.twitch.tv" />
+                <data android:scheme="https" android:host="clips.twitch.tv" />
+                <data android:scheme="https" android:host="www.instagram.com" />
+                <data android:scheme="https" android:host="fb.watch" />
+                <data android:scheme="https" android:host="www.facebook.com" />
+                <data android:scheme="http" android:host="www.youtube.com" />
+                <data android:scheme="http" android:host="youtube.com" />
+                <data android:scheme="http" android:host="youtu.be" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          Native foreground service — drives DownloadEngine directly.
+          No server polling; runs entirely on-device.
+        -->
+        <service
+            android:name=".DownloadMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <!-- Handles Pause / Resume taps from the persistent notification -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.lumi.dm.PAUSE_ALL" />
+                <action android:name="com.lumi.dm.RESUME_ALL" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Restarts the service after device reboot -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

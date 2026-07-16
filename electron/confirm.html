@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumi DM</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  /* html is always present — ensures window is draggable even before content renders */
+  html { -webkit-app-region: drag; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1d23; color: #e8eaed;
+    height: 260px; overflow: hidden;
+    border: 1px solid #2e3240; border-radius: 10px;
+    display: flex; flex-direction: column;
+    -webkit-app-region: drag;
+  }
+  .header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px 8px;
+    border-bottom: 1px solid #2e3240;
+    background: #22252e;
+    -webkit-app-region: drag;
+  }
+  .logo { width: 20px; height: 20px; opacity: 0.9; }
+  .title { font-size: 12px; font-weight: 600; color: #a0a8b8; letter-spacing: 0.3px; }
+  .close-btn {
+    margin-left: auto; width: 20px; height: 20px; border-radius: 50%;
+    background: #e74c3c; border: none; cursor: pointer; color: #fff;
+    font-size: 11px; display: flex; align-items: center; justify-content: center;
+    -webkit-app-region: no-drag; opacity: 0.8;
+  }
+  .close-btn:hover { opacity: 1; }
+  .body { padding: 12px 14px; flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .filename {
+    font-size: 13px; font-weight: 600; color: #e8eaed;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .meta { font-size: 11px; color: #6b7280; }
+  .field-row { display: flex; align-items: center; gap: 6px; }
+  .field-row label { font-size: 11px; color: #6b7280; white-space: nowrap; }
+  .field-row input {
+    flex: 1; padding: 5px 8px; font-size: 12px;
+    background: #11131a; border: 1px solid #2e3240; border-radius: 6px;
+    color: #e8eaed; outline: none;
+    -webkit-app-region: no-drag;
+  }
+  .field-row input:focus { border-color: #4a90e2; }
+  .browse-btn {
+    padding: 5px 8px; background: #2e3240; border: 1px solid #3a4055;
+    border-radius: 6px; color: #e8eaed; font-size: 12px; cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  .browse-btn:hover { background: #3a4055; }
+  .remember-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 11px; color: #6b7280;
+    -webkit-app-region: no-drag;
+  }
+  .remember-row input { -webkit-app-region: no-drag; }
+  .actions { display: flex; gap: 8px; margin-top: auto; }
+  .btn-start {
+    flex: 1; padding: 8px; background: #4a90e2; border: none;
+    border-radius: 8px; color: #fff; font-size: 13px; font-weight: 600;
+    cursor: pointer; -webkit-app-region: no-drag;
+  }
+  .btn-start:hover { background: #357abd; }
+  .btn-cancel {
+    padding: 8px 16px; background: #2e3240; border: 1px solid #3a4055;
+    border-radius: 8px; color: #a0a8b8; font-size: 13px; cursor: pointer;
+    -webkit-app-region: no-drag;
+  }
+  .btn-cancel:hover { background: #3a4055; }
+  .status { font-size: 11px; color: #6b7280; min-height: 14px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="title">Lumi DM — New Download</div>
+  <button class="close-btn" id="close-x" title="Cancel">✕</button>
+</div>
+<div class="body">
+  <div class="filename" id="filename">Loading…</div>
+  <div class="meta" id="meta"></div>
+  <div class="field-row">
+    <label>Save to</label>
+    <input type="text" id="folder" placeholder="Download folder" />
+    <button class="browse-btn" id="browse">📁</button>
+  </div>
+  <label class="remember-row">
+    <input type="checkbox" id="remember"> Remember this folder
+  </label>
+  <div class="actions">
+    <button class="btn-start" id="btn-start">▶ Start Download</button>
+    <button class="btn-cancel" id="btn-cancel">Cancel</button>
+  </div>
+  <div class="status" id="status"></div>
+</div>
+<script>
+let _job = null;
+
+function _displayJob(job) {
+  _job = job;
+  document.getElementById('filename').textContent = job.filename || job.url;
+  document.getElementById('filename').title = job.url;
+  const sz = job.total_bytes > 0
+    ? (job.total_bytes >= 1048576
+        ? (job.total_bytes / 1048576).toFixed(1) + ' MB'
+        : (job.total_bytes / 1024).toFixed(0) + ' KB')
+    : '';
+  document.getElementById('meta').textContent = sz ? `Size: ${sz}` : 'Size unknown';
+  if (job.target_dir) document.getElementById('folder').value = job.target_dir;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  const job = await window.confirmApp.getJobData();
+  if (job) _displayJob(job);
+});
+
+document.getElementById('browse').addEventListener('click', async () => {
+  const f = await window.confirmApp.pickFolder();
+  if (f) document.getElementById('folder').value = f;
+});
+
+document.getElementById('btn-start').addEventListener('click', async () => {
+  if (!_job) return;
+  const btn = document.getElementById('btn-start');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  const folder   = document.getElementById('folder').value.trim();
+  const remember = document.getElementById('remember').checked;
+  if (_job._fromClipboard) {
+    // Clipboard download — POST directly to HTTP start
+    document.getElementById('status').textContent = 'Sending to download queue…';
+    try {
+      const r = await fetch('http://127.0.0.1:7000/api/downloads/http', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: _job.url, target_dir: folder }),
+      });
+      await r.json();
+    } catch (_) {}
+    if (remember && folder) {
+      await fetch('http://127.0.0.1:7000/api/settings/default-dir', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dir: folder }),
+      }).catch(() => {});
+    }
+    window.close();
+    return;
+  }
+  const result = await window.confirmApp.confirmStaged(_job.id, _job.filename, folder, remember);
+  if (result && result.error) {
+    document.getElementById('status').textContent = result.error;
+    btn.disabled = false; btn.textContent = '▶ Start Download';
+  } else {
+    window.close();
+  }
+});
+
+document.getElementById('btn-cancel').addEventListener('click', async () => {
+  if (_job) await window.confirmApp.cancelStaged(_job.id);
+  window.close();
+});
+
+document.getElementById('close-x').addEventListener('click', async () => {
+  if (_job) await window.confirmApp.cancelStaged(_job.id);
+  window.close();
+});
+</script>
+</body>
+</html>

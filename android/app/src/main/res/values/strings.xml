@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lumi DM</string>
+    <string name="nav_downloads">Downloads</string>
+    <string name="nav_add">Add</string>
+    <string name="nav_settings">Settings</string>
+</resources>

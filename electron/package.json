@@ -1,0 +1,105 @@
+{
+  "name": "lumi-dm",
+  "version": "1.0.0",
+  "description": "Reminal Download Manager",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.lumi.dm",
+    "productName": "Lumi DM",
+    "copyright": "lumi",
+    "directories": {
+      "output": "../dist/electron"
+    },
+    "files": [
+      "main.js",
+      "widget.html",
+      "preload-widget.js",
+      "node_modules/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../static",
+        "to": "static",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../assets/windows/Lumi-DM.ico",
+        "to": "assets/windows/Lumi-DM.ico"
+      },
+      {
+        "from": "../browser-extension",
+        "to": "browser-extension",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../dist/server",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/windows/Lumi-DM.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "installer.nsh",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lumi DM",
+      "installerIcon": "../assets/windows/Lumi-DM.ico",
+      "uninstallerIcon": "../assets/windows/Lumi-DM.ico"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "../assets/macos/Lumi-DM.icns",
+      "category": "public.app-category.utilities"
+    },
+    "dmg": {
+      "title": "Lumi DM",
+      "icon": "../assets/macos/Lumi-DM.icns"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "../assets/linux/Lumi-DM-512.png",
+      "category": "Network"
+    }
+  },
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}
