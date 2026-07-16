@@ -1,6 +1,6 @@
 # Lumi DM
 
-Lumi DM is the short name for Reminal Download Manager, a cross-platform download manager with a Flask backend, web UI, browser extension, Electron desktop wrapper, and native mobile project scaffolds.
+Lumi DM is the short name for Luminal Download Manager, a cross-platform download manager with a Flask backend, web UI, browser extension, Electron desktop wrapper, and native mobile project scaffolds.
 
 ## Features
 
