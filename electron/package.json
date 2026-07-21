@@ -4,7 +4,10 @@
   "description": "Reminal Download Manager",
   "main": "main.js",
   "scripts": {
+    "prepare:icons": "python prepare-icons.py",
+    "prestart": "npm run prepare:icons",
     "start": "electron .",
+    "prebuild": "npm run prepare:icons",
     "build": "electron-builder"
   },
   "build": {
