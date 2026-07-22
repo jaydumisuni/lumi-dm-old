@@ -87,15 +87,16 @@
 </div>
 
 <div class="modal-backdrop" id="queue-modal" hidden>
-  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create queue</h2><button class="icon-btn" data-close-modal="queue-modal">×</button></div><form class="modal-body form-stack" id="queue-form"><label>Name<input name="name" required maxlength="80"></label><label>Queue ID<input name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>Maximum running tasks<input name="max_running" type="number" min="0" max="128" value="0"><small>0 uses the global limit.</small></label><button class="btn primary" type="submit">Create queue</button></form></section>
+  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create queue</h2><button class="icon-btn" data-close-modal="queue-modal">×</button></div><form class="modal-body form-stack" id="queue-form"><label>Name<input class="input" name="name" required maxlength="80"></label><label>Queue ID<input class="input" name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>Maximum running tasks<input class="input" name="max_running" type="number" min="0" max="128" value="0"><small>0 uses the global limit.</small></label><button class="btn primary" type="submit">Create queue</button></form></section>
 </div>
 
 <div class="modal-backdrop" id="category-modal" hidden>
-  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create category</h2><button class="icon-btn" data-close-modal="category-modal">×</button></div><form class="modal-body form-stack" id="category-form"><label>Name<input name="name" required maxlength="80"></label><label>Category ID<input name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>File extensions<input name="extensions" placeholder="zip, rar, 7z"></label><label>Domains<input name="domains" placeholder="downloads.example.com, *.mirror.net"></label><label>Folder name<input name="folder" required></label><label class="check"><input name="auto_extract" type="checkbox">Automatically extract completed archives</label><button class="btn primary" type="submit">Create category</button></form></section>
+  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create category</h2><button class="icon-btn" data-close-modal="category-modal">×</button></div><form class="modal-body form-stack" id="category-form"><label>Name<input class="input" name="name" required maxlength="80"></label><label>Category ID<input class="input" name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>File extensions<input class="input" name="extensions" placeholder="zip, rar, 7z"></label><label>Domains<input class="input" name="domains" placeholder="downloads.example.com, *.mirror.net"></label><label>Folder name<input class="input" name="folder" required></label><label class="check"><input name="auto_extract" type="checkbox">Automatically extract completed archives</label><button class="btn primary" type="submit">Create category</button></form></section>
 </div>
 
 <div class="context-menu" id="context-menu" hidden></div>
 <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
 <script src="/static/app-v4.js"></script>
+<script src="/static/app-v4-hardening.js"></script>
 </body>
 </html>
