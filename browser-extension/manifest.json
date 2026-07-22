@@ -24,7 +24,7 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "popup.html",
+    "default_popup": "popup-v4.html",
     "default_title": "Lumi DM",
     "default_icon": {
       "16": "icons/icon16.png",
