@@ -1,7 +1,7 @@
 """Core domain models for Lumi DM v2.
 
-The v2 model is deliberately independent from Flask, Electron and packaging.
-Every transport and UI works through the same persisted task contract.
+The model is independent from Flask, Electron and packaging. Every interface uses
+one persisted task contract, while sensitive replay data remains in the vault.
 """
 from __future__ import annotations
 
@@ -56,19 +56,21 @@ class RequestEnvelope:
     final_url: str = ""
     method: str = "GET"
     headers: dict[str, str] = field(default_factory=dict)
+    secret_headers_reference: str = ""
     cookie_reference: str = ""
     post_body_reference: str = ""
     captured_at: str = field(default_factory=utc_now)
     provider_id: str = ""
     browser_profile: str = ""
     suggested_filename: str = ""
+    proxy_url: str = ""
 
     def normalized_headers(self) -> dict[str, str]:
         blocked = {"host", "content-length", "connection"}
         return {
-            str(k): str(v)
-            for k, v in self.headers.items()
-            if str(k).strip() and str(k).lower() not in blocked
+            str(key): str(value)
+            for key, value in self.headers.items()
+            if str(key).strip() and str(key).lower() not in blocked
         }
 
     def redacted_dict(self) -> dict[str, Any]:
@@ -78,10 +80,15 @@ class RequestEnvelope:
             key: ("<redacted>" if key.lower() in sensitive else value)
             for key, value in self.normalized_headers().items()
         }
-        if out["cookie_reference"]:
-            out["cookie_reference"] = "<secure-reference>"
-        if out["post_body_reference"]:
-            out["post_body_reference"] = "<secure-reference>"
+        for key in (
+            "secret_headers_reference",
+            "cookie_reference",
+            "post_body_reference",
+        ):
+            if out[key]:
+                out[key] = "<secure-reference>"
+        if out["proxy_url"]:
+            out["proxy_url"] = "<configured>"
         return out
 
     @classmethod
@@ -93,15 +100,19 @@ class RequestEnvelope:
             final_url=str(value.get("final_url") or ""),
             method=str(value.get("method") or "GET").upper(),
             headers={
-                str(k): str(v)
-                for k, v in dict(value.get("headers") or {}).items()
+                str(key): str(item)
+                for key, item in dict(value.get("headers") or {}).items()
             },
+            secret_headers_reference=str(
+                value.get("secret_headers_reference") or ""
+            ),
             cookie_reference=str(value.get("cookie_reference") or ""),
             post_body_reference=str(value.get("post_body_reference") or ""),
             captured_at=str(value.get("captured_at") or utc_now()),
             provider_id=str(value.get("provider_id") or ""),
             browser_profile=str(value.get("browser_profile") or ""),
             suggested_filename=str(value.get("suggested_filename") or ""),
+            proxy_url=str(value.get("proxy_url") or ""),
         )
 
 
@@ -152,6 +163,8 @@ class DownloadTask:
     final_path: str
     partial_path: str
     queue_id: str = "default"
+    category_id: str = "other"
+    host_profile_id: str = ""
     priority: int = 0
     created_at: str = field(default_factory=utc_now)
     updated_at: str = field(default_factory=utc_now)
@@ -212,13 +225,13 @@ class DownloadTask:
         )
         known = {
             "id", "type", "status", "filename", "target_dir", "temp_dir",
-            "final_path", "partial_path", "queue_id", "priority", "created_at",
-            "updated_at", "started_at", "finished_at", "total_bytes",
-            "downloaded_bytes", "speed_bytes_per_sec", "progress_percent",
-            "connections", "max_speed_bps", "mode", "error", "error_code",
-            "etag", "last_modified", "content_type", "range_supported",
-            "backend_id", "duplicate_policy", "post_process", "metadata",
-            "schema_version",
+            "final_path", "partial_path", "queue_id", "category_id",
+            "host_profile_id", "priority", "created_at", "updated_at",
+            "started_at", "finished_at", "total_bytes", "downloaded_bytes",
+            "speed_bytes_per_sec", "progress_percent", "connections",
+            "max_speed_bps", "mode", "error", "error_code", "etag",
+            "last_modified", "content_type", "range_supported", "backend_id",
+            "duplicate_policy", "post_process", "metadata", "schema_version",
         }
         kwargs = {key: value[key] for key in known if key in value}
         kwargs.setdefault("temp_dir", value.get("target_dir", ""))
