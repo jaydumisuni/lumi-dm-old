@@ -22,6 +22,18 @@ The test suite creates local fake yt-dlp, aria2c, FFmpeg, ffprobe and 7-Zip
 implementations. No public media site, tracker, torrent peer, archive utility or
 network service is required to prove control flow and persistence.
 
+## Maintainer hardening findings
+
+- FFmpeg atomic temporary outputs preserve the final container extension so the
+  real muxer is selected correctly.
+- Pause and cancel remain authoritative even when yt-dlp wraps a progress-hook
+  exception in its own error type.
+- Playlist completion records all finished files instead of treating the playlist
+  dictionary as one output file.
+- Torrent metadata is decoded through byte, depth, item, ordering and truncation
+  limits, with typed `BencodeError` failures for malformed input.
+- The two late Wave 2 request-envelope size regressions are included in this tree.
+
 ## Review closure
 
 - Runtime and browser/source proof must pass.
