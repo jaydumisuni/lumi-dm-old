@@ -1,0 +1,84 @@
+name: Lumi Wave 4 Product Proof
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  product-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install runtime and proof dependencies
+        run: python -m pip install --disable-pip-version-check -q -r requirements.txt pytest
+
+      - name: Compile complete source
+        run: python -m compileall -q core server.py tests
+
+      - name: Validate product and extension JavaScript
+        run: |
+          python -m json.tool browser-extension/manifest.json >/dev/null
+          node --check static/app.js
+          node --check browser-extension/auth-bootstrap.js
+          node --check browser-extension/background-entry.js
+          node --check browser-extension/background.js
+          node --check browser-extension/content.js
+          node --check browser-extension/popup.js
+
+      - name: Run Wave 4 product proofs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set +e
+          python -m pytest -q tests/test_v2_wave4.py > /tmp/lumi-wave4.log 2>&1
+          status=$?
+          cat /tmp/lumi-wave4.log
+          if [ "$status" -ne 0 ]; then
+            issue_title="Lumi Wave 4 product proof failure PR #$PR_NUMBER"
+            {
+              echo "## $issue_title"
+              echo
+              echo "Commit: \`$HEAD_SHA\`"
+              echo "Pull request: #$PR_NUMBER"
+              echo
+              echo '```text'
+              tail -n 240 /tmp/lumi-wave4.log
+              echo '```'
+            } > /tmp/lumi-wave4-issue.md
+            issue_number=$(gh issue list --repo "$REPOSITORY" --state open \
+              --search "$issue_title in:title" \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$issue_number" ]; then
+              gh issue edit "$issue_number" --repo "$REPOSITORY" \
+                --body-file /tmp/lumi-wave4-issue.md
+            else
+              gh issue create --repo "$REPOSITORY" \
+                --title "$issue_title" \
+                --body-file /tmp/lumi-wave4-issue.md
+            fi
+            gh pr comment "$PR_NUMBER" --body \
+              "Wave 4 product proof failed. The exact traceback is tracked in **$issue_title**."
+          fi
+          exit $status
