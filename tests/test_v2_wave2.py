@@ -349,6 +349,7 @@ def test_server_launcher_and_browser_contracts_are_present(tmp_path: Path) -> No
     background = (root / "browser-extension" / "background.js").read_text()
     assert "cookies" in manifest["permissions"]
     assert "lumi-force-next" in manifest["commands"]
-    assert "_isLocalServer" in background
+    assert "isLocalServer" in background
+    assert "Request secrets can only be sent to local Lumi" in background
     assert "/api/browser/repair-capture" in background
     assert "Authorization" not in json.dumps(manifest)
