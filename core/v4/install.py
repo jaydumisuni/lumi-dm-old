@@ -11,6 +11,7 @@ from flask import Flask
 from core.v2 import runtime as runtime_module
 from core.v3 import runtime_wave3
 
+from . import security_hardening as _security_hardening  # noqa: F401
 from .api import V4Services, configure_services, wave4_api
 from .diagnostics import DiagnosticsService
 from .maintenance import MaintenanceService
