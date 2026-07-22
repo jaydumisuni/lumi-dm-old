@@ -1,13 +1,14 @@
 {
   "name": "lumi-dm",
   "version": "1.0.0",
-  "description": "Reminal Download Manager",
+  "description": "Lumi Download Manager",
   "main": "main.js",
   "scripts": {
+    "prepare:branding": "python ../scripts/normalize_branding.py",
     "prepare:icons": "python prepare-icons.py",
-    "prestart": "npm run prepare:icons",
+    "prestart": "npm run prepare:branding && npm run prepare:icons",
     "start": "electron .",
-    "prebuild": "npm run prepare:icons",
+    "prebuild": "npm run prepare:branding && npm run prepare:icons",
     "build": "electron-builder"
   },
   "build": {
@@ -19,6 +20,7 @@
     },
     "files": [
       "main.js",
+      "preload-main.js",
       "widget.html",
       "preload-widget.js",
       "node_modules/**"
