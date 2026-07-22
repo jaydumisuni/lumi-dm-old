@@ -3,6 +3,7 @@ requests>=2.31
 beautifulsoup4>=4.12
 yt-dlp>=2024.1.1
 psutil>=5.9
+cryptography>=42.0
 # Optional for torrent support — install ONE of:
 #   pip install lbry-libtorrent
 #   OR install aria2c from https://aria2.github.io and add to PATH
