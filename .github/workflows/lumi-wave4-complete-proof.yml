@@ -1,0 +1,44 @@
+name: Lumi Wave 4 Complete Proof
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  complete-product-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install source dependencies
+        run: python -m pip install --disable-pip-version-check -q -r requirements.txt pytest
+
+      - name: Compile Python source
+        run: python -m compileall -q core server.py tests
+
+      - name: Validate product shell and extension modules
+        run: |
+          python -m json.tool static/manifest.webmanifest >/dev/null
+          python -m json.tool browser-extension/manifest.json >/dev/null
+          node --check static/app.js
+          node --check static/sw.js
+          node --check browser-extension/auth-bootstrap.js
+          node --check browser-extension/background-entry.js
+          node --check browser-extension/background.js
+          node --check browser-extension/content.js
+          node --check browser-extension/popup.js
+
+      - name: Run every Wave 4 proof
+        run: python -m pytest -q 'tests/test_v2_wave4*.py'
