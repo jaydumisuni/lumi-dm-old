@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   runtime-proof:
@@ -36,20 +37,43 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
           set +e
           pytest -q > /tmp/lumi-pytest.log 2>&1
           status=$?
           cat /tmp/lumi-pytest.log
-          if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
+          if [ "$status" -ne 0 ]; then
             {
-              echo "### Lumi runtime proof failure"
+              echo "## Lumi V2 runtime proof failure"
+              echo
+              echo "Commit: \`$HEAD_SHA\`"
+              if [ -n "$PR_NUMBER" ]; then
+                echo "Pull request: #$PR_NUMBER"
+              fi
               echo
               echo '```text'
               tail -n 180 /tmp/lumi-pytest.log
               echo '```'
-            } > /tmp/lumi-proof-comment.md
-            gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-proof-comment.md
+            } > /tmp/lumi-proof-issue.md
+
+            issue_number=$(gh issue list --repo "$REPOSITORY" --state open \
+              --search 'Lumi V2 runtime proof failure in:title' \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$issue_number" ]; then
+              gh issue edit "$issue_number" --repo "$REPOSITORY" \
+                --body-file /tmp/lumi-proof-issue.md
+            else
+              gh issue create --repo "$REPOSITORY" \
+                --title "Lumi V2 runtime proof failure" \
+                --body-file /tmp/lumi-proof-issue.md
+            fi
+
+            if [ -n "$PR_NUMBER" ]; then
+              gh pr comment "$PR_NUMBER" --body \
+                "Runtime proof failed. The exact traceback is tracked in the open **Lumi V2 runtime proof failure** issue."
+            fi
           fi
           exit $status
 
