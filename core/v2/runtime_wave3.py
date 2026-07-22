@@ -1,7 +1,6 @@
 """Wave 3 runtime activation for media, torrents and post-processing."""
 from __future__ import annotations
 
-from pathlib import Path
 import threading
 
 from .runtime_wave2 import *  # noqa: F401,F403 - activates secure HTTP replay
@@ -9,7 +8,7 @@ from . import runtime as _runtime
 from .media import MediaService
 from .models import TaskStatus, TaskType, utc_now
 from .postprocess import PostProcessController
-from .torrents import TorrentService
+from .torrents_safe import TorrentService
 
 
 def _run_task_wave3(
