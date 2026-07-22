@@ -65,20 +65,25 @@ class RequestEnvelope:
     suggested_filename: str = ""
     proxy_url: str = ""
 
-    def normalized_headers(self) -> dict[str, str]:
+    def normalized_headers(self, *, include_secrets: bool = True) -> dict[str, str]:
         blocked = {"host", "content-length", "connection"}
-        return {
+        headers = {
             str(key): str(value)
             for key, value in self.headers.items()
             if str(key).strip() and str(key).lower() not in blocked
         }
+        if include_secrets and self.secret_headers_reference:
+            from .vault import hydrate_secret_headers
+
+            headers.update(hydrate_secret_headers(self.secret_headers_reference))
+        return headers
 
     def redacted_dict(self) -> dict[str, Any]:
         out = asdict(self)
         sensitive = {"authorization", "cookie", "proxy-authorization"}
         out["headers"] = {
             key: ("<redacted>" if key.lower() in sensitive else value)
-            for key, value in self.normalized_headers().items()
+            for key, value in self.normalized_headers(include_secrets=True).items()
         }
         for key in (
             "secret_headers_reference",
@@ -195,9 +200,7 @@ class DownloadTask:
     def to_dict(self, *, public: bool = False) -> dict[str, Any]:
         out = asdict(self)
         out["request"] = (
-            self.request.redacted_dict()
-            if public
-            else asdict(self.request)
+            self.request.redacted_dict() if public else asdict(self.request)
         )
         out["url"] = self.request.url
         out["final_url"] = self.request.final_url
