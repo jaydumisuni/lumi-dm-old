@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 from core.v2.models import RequestEnvelope
 from core.v2.vault import secure_request_envelope
@@ -44,8 +47,25 @@ def test_browser_capture_is_bounded_and_keeps_oversized_posts_in_browser() -> No
     assert "if (envelope.capture_error)" in source
 
 
-def test_local_server_rejects_unbounded_request_envelopes() -> None:
+def test_local_server_rejects_unbounded_request_envelopes(tmp_path: Path) -> None:
     root = Path(__file__).resolve().parents[1]
-    launcher = (root / "server.py").read_text(encoding="utf-8")
+    environment = dict(os.environ)
+    environment["LUMIDM_DATA_DIR"] = str(tmp_path / "server-data")
+    proof = (
+        "import server; "
+        "assert server.app.config['MAX_CONTENT_LENGTH'] == 8 * 1024 * 1024; "
+        "client=server.app.test_client(); "
+        "response=client.post('/api/security/pair', "
+        "data=b'x'*(8*1024*1024+1), content_type='application/json'); "
+        "assert response.status_code == 413, response.status_code"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", proof],
+        cwd=root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
 
-    assert 'app.config.setdefault("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)' in launcher
+    assert result.returncode == 0, result.stderr
