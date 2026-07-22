@@ -106,7 +106,11 @@ class FFmpegService:
         source = Path(source)
         destination = Path(destination)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(destination.name + ".lumi-processing")
+        # Real FFmpeg selects the muxer from the output suffix. The temporary
+        # output must preserve that suffix while remaining hidden and atomic.
+        temporary = destination.with_name(
+            f".{destination.stem}.lumi-processing{destination.suffix}"
+        )
         temporary.unlink(missing_ok=True)
         duration = self.duration_seconds(source)
         command = [
