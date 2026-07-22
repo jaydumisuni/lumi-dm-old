@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Reminal Download Manager",
+  "name": "Lumi Download Manager",
   "short_name": "Lumi DM",
   "version": "1.0.0",
   "description": "Intercept downloads, videos, and torrents — send them to Lumi DM automatically.",
@@ -26,27 +26,35 @@
     "default_popup": "popup.html",
     "default_title": "Lumi DM",
     "default_icon": {
-      "16":  "icons/icon16.png",
-      "48":  "icons/icon48.png",
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ],
   "icons": {
-    "16":  "icons/icon16.png",
-    "48":  "icons/icon48.png",
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/*.png"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "icons/*.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
