@@ -2,18 +2,19 @@
   "manifest_version": 3,
   "name": "Lumi Download Manager",
   "short_name": "Lumi DM",
-  "version": "1.0.0",
-  "description": "Intercept downloads, videos, and torrents — send them to Lumi DM automatically.",
+  "version": "2.0.0",
+  "description": "Capture complete browser download requests and send them securely to Lumi DM.",
   "permissions": [
-    "contextMenus",
-    "storage",
-    "notifications",
-    "downloads",
-    "webNavigation",
-    "webRequest",
-    "tabs",
     "alarms",
-    "scripting"
+    "contextMenus",
+    "cookies",
+    "downloads",
+    "notifications",
+    "scripting",
+    "storage",
+    "tabs",
+    "webNavigation",
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -31,14 +32,26 @@
       "128": "icons/icon128.png"
     }
   },
+  "commands": {
+    "lumi-force-next": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L",
+        "mac": "Command+Shift+L"
+      },
+      "description": "Force the next download in this tab into Lumi"
+    },
+    "lumi-bypass-next": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+B",
+        "mac": "Command+Shift+B"
+      },
+      "description": "Let the browser handle the next download in this tab"
+    }
+  },
   "content_scripts": [
     {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "content.js"
-      ],
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
       "run_at": "document_idle"
     }
   ],
@@ -49,12 +62,8 @@
   },
   "web_accessible_resources": [
     {
-      "resources": [
-        "icons/*.png"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
+      "resources": ["icons/*.png"],
+      "matches": ["<all_urls>"]
     }
   ]
 }
