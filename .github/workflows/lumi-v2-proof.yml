@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   runtime-proof:
@@ -32,11 +33,24 @@ jobs:
 
       - name: Run Lumi runtime proofs
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set +e
           pytest -q > /tmp/lumi-pytest.log 2>&1
           status=$?
           cat /tmp/lumi-pytest.log
+          if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
+            {
+              echo "### Lumi runtime proof failure"
+              echo
+              echo '```text'
+              tail -n 180 /tmp/lumi-pytest.log
+              echo '```'
+            } > /tmp/lumi-proof-comment.md
+            gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-proof-comment.md
+          fi
           exit $status
 
   sergeant-review:
@@ -59,6 +73,24 @@ jobs:
         run: python -m pip install --disable-pip-version-check -q sergeant-reviewer==0.4.0
 
       - name: Sergeant primary review
+        shell: bash
         env:
           SERGEANT_CPL_POLICY: disabled
-        run: sergeant pr-review . --pretty
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          sergeant pr-review . --pretty > /tmp/lumi-sergeant.log 2>&1
+          status=$?
+          cat /tmp/lumi-sergeant.log
+          if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
+            {
+              echo "### Sergeant primary review finding"
+              echo
+              echo '```text'
+              tail -n 220 /tmp/lumi-sergeant.log
+              echo '```'
+            } > /tmp/lumi-sergeant-comment.md
+            gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-sergeant-comment.md
+          fi
+          exit $status
