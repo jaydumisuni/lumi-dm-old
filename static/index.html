@@ -2,310 +2,101 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reminal Download Manager</title>
-<link rel="stylesheet" href="/static/app.css">
-<link rel="manifest" href="/static/manifest.webmanifest">
-<meta name="theme-color" content="#111317">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<link rel="apple-touch-icon" href="/static/favicon-192.png">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lumi Download Manager</title>
+<meta name="theme-color" content="#0b0e13">
+<link rel="icon" href="/static/favicon-32.png">
+<link rel="stylesheet" href="/static/app-v4.css">
 </head>
 <body>
-<div class="shell">
-
-  <!-- Sidebar -->
-  <aside class="sidebar">
-    <div class="brand">
-      <img class="brand-logo" src="/static/favicon-96.png" alt="Lumi DM">
-      <span class="brand-name">Lumi DM</span>
-    </div>
-    <nav class="nav">
-      <button class="nav-btn is-active" data-view="downloads">⬇ Downloads</button>
-      <button class="nav-btn" data-view="new">＋ New download</button>
-      <button class="nav-btn" data-view="settings">⚙ Settings</button>
-    </nav>
-    <div class="sidebar-caps" id="caps-display"></div>
-  </aside>
-
-  <!-- Main -->
-  <main class="main">
-
-    <!-- ── Extension install banner ── -->
-    <div id="ext-banner" class="ext-banner" style="display:none">
-      <img src="/static/favicon-32.png" class="ext-banner-icon" alt="">
-      <div class="ext-banner-text">
-        <strong>Get the browser extension</strong> — right-click any link on any page to send it straight to Lumi DM
-      </div>
-      <button class="ext-install-btn chrome" onclick="showExtModal('chrome')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="4"/><path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 3.5a5 5 0 0 1 4.33 2.5H12a2.5 2.5 0 0 0 0 5 2.5 2.5 0 0 0 2.45-2h4.43A8.5 8.5 0 1 1 12 5.5z"/></svg>
-        Chrome / Edge
-      </button>
-      <button class="ext-install-btn firefox" onclick="showExtModal('firefox')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93V18c-3.31-.49-6-3.36-6-6 0-.35.03-.69.08-1.03L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54C17.47 16.52 16.28 16 15 16v-1l-5-5V9H8.07C8.52 6.19 10.49 4 13 4v2h2l4 4 1 .5c.35.8.5 1.65.5 2.5 0 2.08-.8 3.97-2.1 5.39z"/></svg>
-        Firefox
-      </button>
-      <button class="ext-banner-dismiss" onclick="dismissExtBanner()" title="Dismiss">✕</button>
-    </div>
-
-    <!-- ── Extension install modal ── -->
-    <div id="ext-modal" class="ext-modal" onclick="if(event.target===this)closeExtModal()">
-      <div class="ext-modal-box">
-        <div class="ext-modal-hdr">
-          <img src="/static/favicon-48.png" class="ext-modal-logo" alt="">
-          <div>
-            <div class="ext-modal-title">Install Lumi DM Extension</div>
-            <div class="ext-modal-sub" id="ext-modal-browser-name"></div>
-          </div>
-          <button class="ext-modal-close" onclick="closeExtModal()">✕</button>
-        </div>
-        <div class="ext-modal-body" id="ext-modal-body"></div>
-        <div class="ext-modal-footer">
-          <button class="ghost-btn" onclick="dismissExtBanner();closeExtModal()">Don't show again</button>
-          <button class="primary-btn" onclick="closeExtModal()">Got it</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ── Downloads list ── -->
-    <section class="view is-active" id="view-downloads">
-      <div class="view-header">
-        <h1>Downloads</h1>
-        <div class="hdr-actions">
-          <div class="live-speed-wrap" id="live-speed-wrap">
-            <span class="live-speed-dot" id="live-speed-dot"></span>
-            <span class="live-dl-val" id="live-dl-val" title="App download speed">⬇ 0 B/s</span>
-          </div>
-          <button class="icon-btn" id="refresh-btn" title="Refresh">↻</button>
-          <button class="ghost-btn" id="select-btn" title="Select downloads">☑ Select</button>
-          <button class="ghost-btn" id="pause-all-btn" title="Pause all active">⏸ <span>Pause all</span></button>
-          <button class="ghost-btn" id="resume-all-btn" title="Resume all paused">▶ <span>Resume all</span></button>
-          <button class="ghost-btn danger" id="cancel-all-btn" title="Cancel all active">✕ <span>Cancel all</span></button>
-          <button class="ghost-btn" id="retry-all-btn" title="Retry all failed" style="display:none">↺ Retry all</button>
-          <button class="ghost-btn" id="clear-btn">Clear done</button>
-        </div>
-      </div>
-      <!-- Selection action bar (hidden until items selected) -->
-      <div class="sel-bar" id="sel-bar" style="display:none">
-        <span class="sel-count" id="sel-count">0 selected</span>
-        <button class="ghost-btn" onclick="selAction('pause')">⏸ Pause</button>
-        <button class="ghost-btn" onclick="selAction('resume')">▶ Resume</button>
-        <button class="ghost-btn danger" onclick="selAction('cancel')">✕ Cancel</button>
-        <button class="ghost-btn danger" onclick="selAction('delete')">🗑 Delete</button>
-        <button class="ghost-btn" onclick="selClear()">✕ Deselect all</button>
-      </div>
-      <div id="server-banner" class="server-banner" style="display:none">
-        <span>⚠ Cannot reach the download server — is the app running?</span>
-        <button class="ghost-btn" onclick="loadDownloads()">Retry</button>
-      </div>
-      <div id="dl-list" class="dl-list">
-        <div class="empty-state">No downloads yet. Click <strong>＋ New download</strong> to start.</div>
-      </div>
-    </section>
-
-    <!-- ── New download ── -->
-    <section class="view" id="view-new">
-      <div class="view-header"><h1>New download</h1></div>
-
-      <!-- Global settings row -->
-      <div class="settings-row">
-        <div class="field">
-          <label>Save to folder</label>
-          <input id="save-dir" type="text" placeholder="Leave blank for default Downloads folder">
-        </div>
-      </div>
-
-      <!-- Tab bar -->
-      <div class="tab-bar">
-        <button class="tab-btn is-active" data-tab="direct">⬇ Direct / FTP</button>
-        <button class="tab-btn" data-tab="torrent" id="tab-torrent">⇅ Torrent</button>
-        <button class="tab-btn" data-tab="video" id="tab-video">▶ Video</button>
-        <button class="tab-btn" data-tab="grab">⛏ Grab links</button>
-        <button class="tab-btn" data-tab="batch">⚡ Batch crawl</button>
-      </div>
-
-      <!-- Panel: Direct / FTP -->
-      <div class="tab-panel is-active" id="panel-direct">
-        <textarea id="direct-urls" rows="4"
-          placeholder="Paste URLs (one per line): http://, https://, ftp://, magnet:, or .torrent link&#10;Magnet links and .torrent URLs are auto-detected."
-          spellcheck="false"></textarea>
-        <div class="field-row">
-          <div class="field" style="flex:1; min-width:180px">
-            <label>Filename <span style="color:var(--muted);font-size:10px">(optional, single URL only)</span></label>
-            <input id="direct-filename" type="text" placeholder="Auto-detect from URL">
-          </div>
-          <label class="check-label" style="padding-bottom:2px">
-            <input type="checkbox" id="direct-overwrite"> Overwrite
-          </label>
-        </div>
-        <div class="field-row">
-          <div class="field field-sm">
-            <label>Connections</label>
-            <input id="direct-conns" type="number" value="32" min="1" max="128">
-          </div>
-          <div class="field field-sm">
-            <label>Speed limit (KB/s)</label>
-            <input id="direct-speed" type="number" value="0" min="0" placeholder="0 = unlimited">
-          </div>
-          <button class="primary-btn" id="direct-start">⬇ Download</button>
-        </div>
-        <div id="direct-status" class="status-line"></div>
-      </div>
-
-      <!-- Panel: Torrent -->
-      <div class="tab-panel" id="panel-torrent">
-        <input id="torrent-url" type="text"
-          placeholder="magnet:?xt=urn:btih:…  or  https://…/file.torrent"
-          spellcheck="false">
-        <div class="field-row">
-          <div class="field field-sm">
-            <label>Connections</label>
-            <input id="torrent-conns" type="number" value="32" min="1" max="128">
-          </div>
-          <button class="primary-btn" id="torrent-start">⇅ Start torrent</button>
-        </div>
-        <div id="torrent-status" class="status-line"></div>
-        <p class="hint">Requires: <code>pip install lbry-libtorrent</code> or <code>aria2c</code> in PATH</p>
-      </div>
-
-      <!-- Panel: Video -->
-      <div class="tab-panel" id="panel-video">
-        <input id="video-url" type="url"
-          placeholder="https://youtube.com/watch?v=…  (YouTube, Vimeo, Twitter, TikTok, 1000+ sites)"
-          spellcheck="false">
-        <div class="field-row">
-          <select id="video-fmt">
-            <option value="bestvideo+bestaudio/best">Best quality</option>
-            <option value="bestvideo[height<=1080]+bestaudio/best[height<=1080]">1080p</option>
-            <option value="bestvideo[height<=720]+bestaudio/best[height<=720]">720p</option>
-            <option value="bestvideo[height<=480]+bestaudio/best[height<=480]">480p</option>
-            <option value="worstvideo+worstaudio/worst">Smallest file</option>
-            <option value="bestaudio/best">Audio only (best)</option>
-          </select>
-          <label class="check-label"><input type="checkbox" id="video-mp3"> Save as MP3</label>
-          <label class="check-label"><input type="checkbox" id="video-subs"> Subtitles</label>
-          <button class="primary-btn" id="video-start">▶ Download video</button>
-        </div>
-        <div id="video-status" class="status-line"></div>
-        <p class="hint">Requires: <code>pip install yt-dlp</code> — optional FFmpeg for merging</p>
-      </div>
-
-      <!-- Panel: Grab links -->
-      <div class="tab-panel" id="panel-grab">
-        <div class="field-row">
-          <input id="grab-url" type="url" style="flex:1"
-            placeholder="https://site.com/downloads  — paste page URL to scan for files">
-          <button class="primary-btn" id="grab-scan">⛏ Scan page</button>
-        </div>
-        <div id="grab-status" class="status-line"></div>
-        <div id="grab-results"></div>
-      </div>
-
-      <!-- Panel: Batch crawl -->
-      <div class="tab-panel" id="panel-batch">
-        <input id="batch-url" type="url"
-          placeholder="https://site.com/episodes/page/1  or  youtube.com/playlist?list=…"
-          spellcheck="false">
-        <div class="field-row" style="margin-top:10px;align-items:center;gap:14px">
-          <div class="field field-sm">
-            <label>Max pages</label>
-            <input id="batch-pages" type="number" value="10" min="1" max="50">
-          </div>
-          <label class="check-label"><input type="checkbox" id="batch-inc-videos" checked> Videos</label>
-          <label class="check-label"><input type="checkbox" id="batch-inc-files"  checked> Files</label>
-        </div>
-        <div class="field-row" style="margin-top:10px">
-          <button class="ghost-btn"   id="batch-scan-btn">🔍 Scan first</button>
-          <button class="primary-btn" id="batch-start-btn">⚡ Download all</button>
-        </div>
-        <div id="batch-status" class="status-line"></div>
-        <div id="batch-results"></div>
-      </div>
-    </section>
-
-    <!-- ── Settings ── -->
-    <section class="view" id="view-settings">
-      <div class="view-header"><h1>Settings</h1></div>
-
-      <!-- Speed test card -->
-      <div class="settings-card">
-        <h2>Internet Speed Test</h2>
-        <p class="hint">Measures your real download speed (independent of any active downloads).</p>
-        <div class="speedtest-wrap">
-          <button id="speedtest-btn" class="ghost-btn" onclick="runSpeedTest()">▶ Run Speed Test</button>
-          <div class="speedtest-bar-wrap"><div id="speedtest-bar" class="speedtest-bar"></div></div>
-          <div id="speedtest-result" class="speedtest-result"></div>
-        </div>
-      </div>
-
-      <div class="settings-card">
-        <h2>Server capabilities</h2>
-        <div id="caps-detail" class="caps-grid"></div>
-      </div>
-      <div class="settings-card">
-        <h2>Max simultaneous downloads</h2>
-        <div class="field-row">
-          <input id="settings-concurrent" type="number" min="1" max="128" style="width:80px" placeholder="8">
-          <button class="ghost-btn" id="settings-concurrent-save">Save</button>
-        </div>
-        <p class="hint">How many downloads can run at the same time (1–128). Takes effect immediately.</p>
-        <div id="settings-concurrent-status" class="status-line"></div>
-      </div>
-      <div class="settings-card">
-        <h2>Default connections per download</h2>
-        <div class="field-row">
-          <input id="settings-connections" type="number" min="1" max="64" style="width:80px" placeholder="16">
-          <button class="ghost-btn" id="settings-connections-save">Save</button>
-        </div>
-        <p class="hint">Parallel connections used per file (1–64). Higher = faster on fast connections.</p>
-        <div id="settings-connections-status" class="status-line"></div>
-      </div>
-      <div class="settings-card">
-        <h2>Default download folder</h2>
-        <div class="field-row">
-          <input id="settings-dir" type="text" style="flex:1" placeholder="e.g. D:\Downloads">
-          <button class="ghost-btn" id="settings-save">Save</button>
-        </div>
-        <p class="hint">Overrides the server default for new downloads started from this browser.</p>
-        <div id="settings-status" class="status-line"></div>
-      </div>
-      <div class="settings-card">
-        <h2>When all downloads finish</h2>
-        <p class="hint">Automatically perform an action after all downloads complete.</p>
-        <div class="field-row">
-          <select id="completion-action" style="flex:1;padding:6px 10px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;">
-            <option value="none">Do nothing</option>
-            <option value="sleep">Sleep / Suspend</option>
-            <option value="shutdown">Shut down</option>
-            <option value="restart">Restart</option>
-          </select>
-          <button class="ghost-btn" id="completion-action-save">Save</button>
-        </div>
-        <div id="completion-action-status" class="status-line"></div>
-      </div>
-    </section>
-
-  </main>
+<div class="boot-screen" id="boot-screen">
+  <img src="/static/favicon-96.png" alt="Lumi" class="boot-logo">
+  <div class="boot-title">Lumi Download Manager</div>
+  <div class="boot-status" id="boot-status">Starting secure local session…</div>
+  <button class="btn primary" id="boot-retry" hidden>Retry</button>
 </div>
 
-<!-- ── Staged download confirmation overlay ── -->
-<div id="staged-overlay" class="staged-overlay" style="display:none">
-  <div class="staged-box">
-    <div class="staged-hdr">
-      <img src="/static/favicon-48.png" class="staged-logo" alt="">
-      <div>
-        <div class="staged-title">Confirm Download</div>
-        <div class="staged-sub">Review details before starting</div>
-      </div>
+<div class="app-shell" id="app-shell" hidden>
+  <aside class="sidebar" id="sidebar">
+    <div class="brand-block">
+      <img src="/static/favicon-96.png" alt="Lumi" class="brand-logo">
+      <div><div class="brand-name">Lumi</div><div class="brand-sub">Download Manager</div></div>
+      <button class="icon-btn mobile-only" id="sidebar-close" aria-label="Close menu">×</button>
     </div>
-    <div id="staged-list" class="staged-list"></div>
+
+    <nav class="nav-list" aria-label="Main navigation">
+      <button class="nav-item active" data-view="overview"><span>⌂</span>Overview</button>
+      <button class="nav-item" data-view="downloads"><span>↓</span>All downloads <b id="nav-all-count">0</b></button>
+      <button class="nav-item" data-view="unfinished"><span>◔</span>Unfinished <b id="nav-unfinished-count">0</b></button>
+      <button class="nav-item" data-view="finished"><span>✓</span>Finished <b id="nav-finished-count">0</b></button>
+      <div class="nav-label">Organise</div>
+      <button class="nav-item" data-view="queues"><span>☷</span>Queues</button>
+      <button class="nav-item" data-view="categories"><span>◇</span>Categories</button>
+      <button class="nav-item" data-view="grabber"><span>⌁</span>LinkGrabber</button>
+      <div class="nav-label">System</div>
+      <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
+      <button class="nav-item" data-view="diagnostics"><span>＋</span>Diagnostics</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="connection-state"><span class="state-dot" id="server-dot"></span><div><strong id="server-state">Connecting</strong><small id="client-role">Local session</small></div></div>
+      <div class="sidebar-speed"><span>Current speed</span><strong id="sidebar-speed">0 B/s</strong></div>
+    </div>
+  </aside>
+
+  <div class="workspace">
+    <header class="topbar">
+      <button class="icon-btn mobile-only" id="sidebar-open" aria-label="Open menu">☰</button>
+      <div class="view-heading"><h1 id="view-title">Overview</h1><p id="view-subtitle">Your download activity at a glance</p></div>
+      <div class="top-actions">
+        <label class="search-box"><span>⌕</span><input id="global-search" type="search" placeholder="Search downloads"></label>
+        <div class="live-speed"><i id="speed-dot"></i><span id="top-speed">0 B/s</span></div>
+        <button class="btn primary" id="new-download-btn">＋ New download</button>
+      </div>
+    </header>
+
+    <main class="content" id="content">
+      <section class="view active" id="view-overview"></section>
+      <section class="view" id="view-downloads"></section>
+      <section class="view" id="view-unfinished"></section>
+      <section class="view" id="view-finished"></section>
+      <section class="view" id="view-queues"></section>
+      <section class="view" id="view-categories"></section>
+      <section class="view" id="view-grabber"></section>
+      <section class="view" id="view-settings"></section>
+      <section class="view" id="view-diagnostics"></section>
+    </main>
   </div>
 </div>
 
-<script src="/static/app.js"></script>
-<script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
-  }
-</script>
+<div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+<aside class="inspector" id="inspector" aria-label="Download inspector" hidden>
+  <div class="inspector-head"><div><small>Task inspector</small><h2 id="inspector-title">Download</h2></div><button class="icon-btn" id="inspector-close">×</button></div>
+  <div class="inspector-tabs" id="inspector-tabs">
+    <button class="active" data-tab="overview">Overview</button><button data-tab="connections">Connections</button><button data-tab="request">Request</button><button data-tab="queue">Queue</button><button data-tab="files">Files</button><button data-tab="post">Post-processing</button><button data-tab="log">Log</button>
+  </div>
+  <div class="inspector-body" id="inspector-body"></div>
+</aside>
+
+<div class="modal-backdrop" id="new-modal" hidden>
+  <section class="modal wide" role="dialog" aria-modal="true" aria-labelledby="new-modal-title">
+    <div class="modal-head"><div><small>Add source</small><h2 id="new-modal-title">New download</h2></div><button class="icon-btn" data-close-modal="new-modal">×</button></div>
+    <div class="modal-tabs" id="source-tabs"><button class="active" data-source="direct">Direct / FTP</button><button data-source="video">Video</button><button data-source="torrent">Torrent</button><button data-source="archive">Archive</button></div>
+    <div class="modal-body" id="source-body"></div>
+  </section>
+</div>
+
+<div class="modal-backdrop" id="queue-modal" hidden>
+  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create queue</h2><button class="icon-btn" data-close-modal="queue-modal">×</button></div><form class="modal-body form-stack" id="queue-form"><label>Name<input class="input" name="name" required maxlength="80"></label><label>Queue ID<input class="input" name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>Maximum running tasks<input class="input" name="max_running" type="number" min="0" max="128" value="0"><small>0 uses the global limit.</small></label><button class="btn primary" type="submit">Create queue</button></form></section>
+</div>
+
+<div class="modal-backdrop" id="category-modal" hidden>
+  <section class="modal" role="dialog" aria-modal="true"><div class="modal-head"><h2>Create category</h2><button class="icon-btn" data-close-modal="category-modal">×</button></div><form class="modal-body form-stack" id="category-form"><label>Name<input class="input" name="name" required maxlength="80"></label><label>Category ID<input class="input" name="id" required pattern="[a-zA-Z0-9_-]+" maxlength="60"></label><label>File extensions<input class="input" name="extensions" placeholder="zip, rar, 7z"></label><label>Domains<input class="input" name="domains" placeholder="downloads.example.com, *.mirror.net"></label><label>Folder name<input class="input" name="folder" required></label><label class="check"><input name="auto_extract" type="checkbox">Automatically extract completed archives</label><button class="btn primary" type="submit">Create category</button></form></section>
+</div>
+
+<div class="context-menu" id="context-menu" hidden></div>
+<div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+<script src="/static/app-v4.js"></script>
+<script src="/static/app-v4-hardening.js"></script>
 </body>
 </html>

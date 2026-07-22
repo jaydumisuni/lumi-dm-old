@@ -1,0 +1,126 @@
+name: Lumi V2 Proof
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  runtime-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node for extension syntax proof
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install proof dependencies quietly
+        run: |
+          python -m pip install --disable-pip-version-check -q -r requirements.txt pytest
+
+      - name: Compile Python source
+        run: python -m compileall -q core server.py tests
+
+      - name: Validate browser extension source
+        run: |
+          python -m json.tool browser-extension/manifest.json >/dev/null
+          node --check browser-extension/background.js
+          node --check browser-extension/content.js
+          node --check browser-extension/popup.js
+
+      - name: Run Lumi runtime proofs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set +e
+          python -m pytest -q > /tmp/lumi-pytest.log 2>&1
+          status=$?
+          cat /tmp/lumi-pytest.log
+          if [ "$status" -ne 0 ]; then
+            issue_title="Lumi V2 runtime proof failure PR #$PR_NUMBER"
+            {
+              echo "## $issue_title"
+              echo
+              echo "Commit: \`$HEAD_SHA\`"
+              echo "Pull request: #$PR_NUMBER"
+              echo
+              echo '```text'
+              tail -n 220 /tmp/lumi-pytest.log
+              echo '```'
+            } > /tmp/lumi-proof-issue.md
+
+            issue_number=$(gh issue list --repo "$REPOSITORY" --state open \
+              --search "$issue_title in:title" \
+              --json number --jq '.[0].number // empty')
+            if [ -n "$issue_number" ]; then
+              gh issue edit "$issue_number" --repo "$REPOSITORY" \
+                --body-file /tmp/lumi-proof-issue.md
+            else
+              gh issue create --repo "$REPOSITORY" \
+                --title "$issue_title" \
+                --body-file /tmp/lumi-proof-issue.md
+            fi
+
+            gh pr comment "$PR_NUMBER" --body \
+              "Runtime proof failed. The exact traceback is tracked in **$issue_title**."
+          fi
+          exit $status
+
+  sergeant-review:
+    needs: runtime-proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Sergeant quietly
+        run: python -m pip install --disable-pip-version-check -q sergeant-reviewer==0.4.0
+
+      - name: Sergeant primary review
+        shell: bash
+        env:
+          SERGEANT_CPL_POLICY: disabled
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          sergeant pr-review . --pretty > /tmp/lumi-sergeant.log 2>&1
+          status=$?
+          cat /tmp/lumi-sergeant.log
+          if [ "$status" -ne 0 ]; then
+            {
+              echo "### Sergeant primary review finding"
+              echo
+              echo '```text'
+              tail -n 240 /tmp/lumi-sergeant.log
+              echo '```'
+            } > /tmp/lumi-sergeant-comment.md
+            gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-sergeant-comment.md
+          fi
+          exit $status

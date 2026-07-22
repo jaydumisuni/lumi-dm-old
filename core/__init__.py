@@ -1,1 +1,1 @@
-# Reminal Download Manager — core engine package
+"""Lumi Download Manager core package."""
