@@ -1,8 +1,7 @@
 """Encrypted local replay-secret vault for Lumi DM.
 
-Secrets are never written into task JSON, public API responses or ordinary logs.
-The vault uses a per-installation Fernet key with owner-only filesystem modes where
-the platform supports them. References contain no secret material.
+Secrets never enter task JSON, public API responses or ordinary logs. The vault
+uses a per-installation Fernet key and owner-only file modes where supported.
 """
 from __future__ import annotations
 
@@ -52,8 +51,8 @@ class LocalSecretVault:
             return key
         except FileNotFoundError:
             pass
-        except (OSError, ValueError):
-            raise VaultError("The local vault key is unreadable or invalid")
+        except (OSError, ValueError) as exc:
+            raise VaultError("The local vault key is unreadable or invalid") from exc
 
         key = Fernet.generate_key()
         temporary = self.key_path.with_suffix(".key.tmp")
@@ -126,6 +125,16 @@ class LocalSecretVault:
             raise VaultError("The requested secret has an invalid structure")
         return value
 
+    def replace(
+        self,
+        reference: str,
+        payload: dict[str, Any],
+    ) -> str:
+        new_reference = self.put(payload)
+        if reference:
+            self.delete(reference)
+        return new_reference
+
     def delete(self, reference: str) -> None:
         root, item_id = parse_reference(reference)
         if root.resolve() != self.root.resolve():
@@ -159,9 +168,10 @@ def secure_request_envelope(
     data_dir: Path,
     envelope: dict[str, Any],
 ) -> dict[str, Any]:
-    """Move sensitive request fields into the encrypted vault.
+    """Move sensitive request fields into encrypted storage.
 
-    The returned envelope is safe to persist in the normal task database.
+    Existing secret references are merged so a host profile cannot accidentally
+    discard cookies or authorization captured earlier in the browser flow.
     """
     value = dict(envelope or {})
     headers = {
@@ -169,22 +179,35 @@ def secure_request_envelope(
         for key, item in dict(value.get("headers") or {}).items()
     }
     secret_names = {"authorization", "cookie", "proxy-authorization"}
-    secret_headers = {
-        key: item for key, item in headers.items() if key.lower() in secret_names
+    secret_headers: dict[str, str] = {}
+    existing_reference = str(value.get("secret_headers_reference") or "")
+    if existing_reference:
+        secret_headers.update(hydrate_secret_headers(existing_reference))
+    secret_headers.update(
+        {
+            key: item
+            for key, item in headers.items()
+            if key.lower() in secret_names
+        }
+    )
+    value["headers"] = {
+        key: item
+        for key, item in headers.items()
+        if key.lower() not in secret_names
     }
-    public_headers = {
-        key: item for key, item in headers.items() if key.lower() not in secret_names
-    }
+
     vault = LocalSecretVault(data_dir)
     if secret_headers:
-        value["secret_headers_reference"] = vault.put(
-            {"headers": secret_headers}
+        value["secret_headers_reference"] = vault.replace(
+            existing_reference,
+            {"headers": secret_headers},
         )
-    value["headers"] = public_headers
 
     if value.get("post_body") not in (None, ""):
-        value["post_body_reference"] = vault.put(
-            {"post_body": value.pop("post_body")}
+        existing_post = str(value.get("post_body_reference") or "")
+        value["post_body_reference"] = vault.replace(
+            existing_post,
+            {"post_body": value.pop("post_body")},
         )
     value.pop("cookies", None)
     return value
@@ -198,3 +221,9 @@ def hydrate_secret_headers(reference: str) -> dict[str, str]:
         str(key): str(item)
         for key, item in dict(value.get("headers") or {}).items()
     }
+
+
+def hydrate_post_body(reference: str) -> Any:
+    if not reference:
+        return None
+    return resolve_secret(reference).get("post_body")
