@@ -19,8 +19,8 @@ def test_public_request_view_survives_missing_vault_entry(tmp_path: Path) -> Non
     )
     envelope = RequestEnvelope.from_dict(secured)
 
-    # Simulate damaged or externally removed encrypted state. Replay must fail later,
-    # but task listing and diagnostics must remain available and secret-safe.
+    # Replay must fail later if encrypted state is damaged, but listing and
+    # diagnostics must remain available and secret-safe.
     entries = tmp_path / "vault" / "entries.json"
     entries.write_text("{}", encoding="utf-8")
 
@@ -30,3 +30,15 @@ def test_public_request_view_survives_missing_vault_entry(tmp_path: Path) -> Non
     assert public["headers"]["Sensitive-Headers"] == "<redacted-unavailable>"
     assert public["secret_headers_reference"] == "<secure-reference>"
     assert "private-token" not in str(public)
+
+
+def test_browser_capture_is_bounded_and_keeps_oversized_posts_in_browser() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "browser-extension" / "background.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "MAX_CAPTURE_BODY_BYTES = 4 * 1024 * 1024" in source
+    assert "POST body exceeds Lumi's 4 MB capture limit" in source
+    assert "Browser kept download" in source
+    assert "if (envelope.capture_error)" in source
