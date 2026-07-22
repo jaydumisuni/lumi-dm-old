@@ -24,6 +24,20 @@ _SENSITIVE_KEY = re.compile(
     re.I,
 )
 _PATH_KEY = re.compile(r"path|dir|folder|location", re.I)
+_URL_IN_TEXT = re.compile(
+    r"(?:https?|ftp)://[^\s<>'\"]+|magnet:\?[^\s<>'\"]+",
+    re.I,
+)
+_INLINE_SECRET = re.compile(
+    r"(?i)(?:bearer\s+)[A-Za-z0-9._~+/=-]+|"
+    r"(?:authorization|cookie|password|passwd|token|api[_-]?key)\s*[:=]\s*[^\s,;]+"
+)
+_WINDOWS_PATH = re.compile(
+    r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/](?:[^\r\n<>:\"|?*]+[\\/]?)+)"
+)
+_UNIX_PRIVATE_PATH = re.compile(
+    r"(?<![A-Za-z0-9])/(?:home|Users|mnt|tmp|var|private|storage|sdcard)/[^\s<>'\"]+"
+)
 
 
 class DiagnosticsService:
@@ -41,13 +55,14 @@ class DiagnosticsService:
     def _safe_url(value: str) -> str:
         try:
             parsed = urlsplit(value)
+            port = parsed.port
         except ValueError:
             return "<url>"
         if parsed.scheme not in {"http", "https", "ftp", "magnet"}:
             return "<url>"
         netloc = parsed.hostname or ""
-        if parsed.port:
-            netloc += f":{parsed.port}"
+        if port:
+            netloc += f":{port}"
         return urlunsplit(
             (
                 parsed.scheme,
@@ -67,6 +82,22 @@ class DiagnosticsService:
         name = path.name or "directory"
         return f"<private-path>/{name}"
 
+    def _redact_text(self, value: str) -> str:
+        text = _INLINE_SECRET.sub("<redacted>", value)
+        text = _URL_IN_TEXT.sub(
+            lambda match: self._safe_url(match.group(0)),
+            text,
+        )
+        text = _WINDOWS_PATH.sub(
+            lambda match: self._safe_path(match.group(0)),
+            text,
+        )
+        text = _UNIX_PRIVATE_PATH.sub(
+            lambda match: self._safe_path(match.group(0)),
+            text,
+        )
+        return text[:2000]
+
     def redact(self, value: Any, *, key: str = "") -> Any:
         if _SENSITIVE_KEY.search(key):
             return "<redacted>" if value not in (None, "", [], {}) else value
@@ -82,7 +113,7 @@ class DiagnosticsService:
                 return self._safe_url(value)
             if _PATH_KEY.search(key) or os.path.isabs(value):
                 return self._safe_path(value)
-            return value[:2000]
+            return self._redact_text(value)
         return value
 
     def summary(self) -> dict[str, Any]:
@@ -110,7 +141,7 @@ class DiagnosticsService:
                 "total": len(tasks),
                 "by_status": counts,
             },
-            "database": self.maintenance.database_health(),
+            "database": self.maintenance.database_health(force=True),
             "storage": self.redact(self.maintenance.storage_health()),
             "missing_files": self.redact(
                 self.maintenance.scan_missing_files(mark=False)
