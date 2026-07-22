@@ -1,53 +1,57 @@
 /**
- * Lumi DM v2 — browser capture and repair bridge (Manifest V3).
+ * Lumi DM v2 — secure browser capture and Repair Download Link bridge.
+ *
+ * Request secrets are sent only to a loopback Lumi server. Browser request state
+ * is short-lived and bounded so normal browsing cannot exhaust extension memory.
  */
 
 const DEFAULT_SERVER = "http://localhost:7000";
 const REQUEST_TTL_MS = 2 * 60 * 1000;
 const CONTROL_TTL_MS = 30 * 1000;
-const KEEPALIVE_MINUTES = 0.5;
+const MAX_CAPTURE_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_REQUESTS_PER_URL = 6;
 
-let _server = DEFAULT_SERVER;
-let _downloadDir = "";
-let _interceptEnabled = true;
-let _hostModes = {};
-let _repairPending = null;
+let serverUrl = DEFAULT_SERVER;
+let downloadDir = "";
+let interceptEnabled = true;
+let hostModes = {};
+let repairPending = null;
 
-const _recentUrls = new Map();
-const _tabMedia = new Map();
-const _requestById = new Map();
-const _requestByUrl = new Map();
-const _pendingAttachUrls = new Map();
-const _forceTabs = new Map();
-const _bypassTabs = new Map();
-const _bypassUrls = new Map();
+const recentUrls = new Map();
+const tabMedia = new Map();
+const requestsById = new Map();
+const requestsByUrl = new Map();
+const attachmentUrls = new Map();
+const forceTabs = new Map();
+const bypassTabs = new Map();
+const bypassUrls = new Map();
 
-const _MEDIA_RE = /\.(m3u8|mpd|mp4|webm|mov|flv|ts|avi|mkv)(\?|#|$)/i;
-const _MEDIA_TYPES = ["media", "xmlhttprequest", "other", "object"];
-const _SKIP_PREFIXES = [
+const MEDIA_RE = /\.(m3u8|mpd|mp4|webm|mov|flv|ts|avi|mkv)(\?|#|$)/i;
+const SKIP_PREFIXES = [
   "blob:", "data:", "chrome://", "chrome-extension://", "moz-extension://",
 ];
-const _DL_EXTS = new Set([
-  "zip","rar","7z","gz","tar","bz2","xz","zst",
-  "exe","msi","dmg","pkg","deb","rpm","apk","ipa","appx",
-  "mp4","mkv","avi","mov","wmv","flv","webm","ts","m2ts",
-  "mp3","flac","wav","aac","ogg","opus","m4a",
-  "pdf","epub","mobi","azw3","iso","img","bin","nrg","torrent",
+const DOWNLOAD_EXTENSIONS = new Set([
+  "zip", "rar", "7z", "gz", "tar", "bz2", "xz", "zst",
+  "exe", "msi", "dmg", "pkg", "deb", "rpm", "apk", "ipa", "appx",
+  "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "ts", "m2ts",
+  "mp3", "flac", "wav", "aac", "ogg", "opus", "m4a",
+  "pdf", "epub", "mobi", "azw3", "iso", "img", "bin", "nrg", "torrent",
 ]);
-const _WEB_ASSET_EXTS = new Set([
-  "png","jpg","jpeg","gif","webp","svg","ico","bmp","avif","tiff",
-  "css","js","json","xml","html","htm","woff","woff2","ttf","eot","map",
+const WEB_ASSET_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "avif",
+  "tiff", "css", "js", "json", "xml", "html", "htm", "woff", "woff2",
+  "ttf", "eot", "map",
 ]);
-const _CAPTURE_HEADERS = new Set([
+const CAPTURE_HEADERS = new Set([
   "accept", "accept-language", "authorization", "content-type", "cookie",
   "origin", "proxy-authorization", "referer", "user-agent",
 ]);
 
-chrome.alarms.create("LUMIDM-keepalive", { periodInMinutes: KEEPALIVE_MINUTES });
+chrome.alarms.create("LUMIDM-keepalive", { periodInMinutes: 0.5 });
 chrome.alarms.onAlarm.addListener(() => {
   chrome.storage.local.get("server");
-  _cleanup();
-  void _refreshRepairPending();
+  cleanupState();
+  void refreshRepairPending();
 });
 
 chrome.storage.local.get(
@@ -58,140 +62,153 @@ chrome.storage.local.get(
     hostModes: {},
   },
   values => {
-    _server = _normaliseServer(values.server);
-    _downloadDir = values.downloadDir || "";
-    _interceptEnabled = values.interceptEnabled !== false;
-    _hostModes = values.hostModes || {};
-    void _refreshRepairPending();
+    serverUrl = normaliseServer(values.server);
+    downloadDir = values.downloadDir || "";
+    interceptEnabled = values.interceptEnabled !== false;
+    hostModes = values.hostModes || {};
+    void refreshRepairPending();
   },
 );
 
 chrome.storage.onChanged.addListener(changes => {
-  if (changes.server) _server = _normaliseServer(changes.server.newValue);
-  if (changes.downloadDir) _downloadDir = changes.downloadDir.newValue || "";
+  if (changes.server) serverUrl = normaliseServer(changes.server.newValue);
+  if (changes.downloadDir) downloadDir = changes.downloadDir.newValue || "";
   if (changes.interceptEnabled) {
-    _interceptEnabled = changes.interceptEnabled.newValue !== false;
+    interceptEnabled = changes.interceptEnabled.newValue !== false;
   }
-  if (changes.hostModes) _hostModes = changes.hostModes.newValue || {};
+  if (changes.hostModes) hostModes = changes.hostModes.newValue || {};
 });
 
-function _normaliseServer(value) {
+function normaliseServer(value) {
   return String(value || DEFAULT_SERVER).replace(/\/$/, "");
 }
 
-function _isLocalServer() {
+function isLocalServer() {
   try {
-    const host = new URL(_server).hostname.toLowerCase();
+    const host = new URL(serverUrl).hostname.toLowerCase();
     return host === "localhost" || host === "127.0.0.1" || host === "::1";
   } catch {
     return false;
   }
 }
 
-function _fetch(url, options = {}, timeout = 8000) {
+function fetchWithTimeout(url, options = {}, timeout = 8000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   return fetch(url, { ...options, signal: controller.signal })
     .finally(() => clearTimeout(timer));
 }
 
-function _cleanup() {
+function cleanupState() {
   const now = Date.now();
-  for (const map of [
-    _recentUrls, _pendingAttachUrls, _forceTabs, _bypassTabs, _bypassUrls,
-  ]) {
-    for (const [key, value] of map) {
-      const timestamp = typeof value === "number" ? value : value?.timestamp || 0;
-      if (now - timestamp > REQUEST_TTL_MS) map.delete(key);
+  for (const map of [recentUrls, attachmentUrls, forceTabs, bypassTabs, bypassUrls]) {
+    for (const [key, timestamp] of map) {
+      if (now - Number(timestamp || 0) > REQUEST_TTL_MS) map.delete(key);
     }
   }
-  for (const [id, value] of _requestById) {
-    if (now - value.timestamp > REQUEST_TTL_MS) _requestById.delete(id);
+  for (const [id, value] of requestsById) {
+    if (now - value.timestamp > REQUEST_TTL_MS) requestsById.delete(id);
   }
-  for (const [url, values] of _requestByUrl) {
+  for (const [url, values] of requestsByUrl) {
     const fresh = values.filter(value => now - value.timestamp <= REQUEST_TTL_MS);
-    if (fresh.length) _requestByUrl.set(url, fresh.slice(-8));
-    else _requestByUrl.delete(url);
+    if (fresh.length) requestsByUrl.set(url, fresh.slice(-MAX_REQUESTS_PER_URL));
+    else requestsByUrl.delete(url);
   }
 }
 
-function _isDuplicate(url) {
+function isDuplicate(url) {
   const now = Date.now();
-  const previous = _recentUrls.get(url);
+  const previous = recentUrls.get(url);
   if (previous && now - previous < 5000) return true;
-  _recentUrls.set(url, now);
+  recentUrls.set(url, now);
   return false;
 }
 
-function _headerObject(headers = []) {
+function canonicalHeaders(headers = []) {
   const result = {};
   for (const header of headers) {
-    const name = String(header.name || "").toLowerCase();
-    if (!_CAPTURE_HEADERS.has(name) || header.value == null) continue;
-    const canonical = name.split("-")
+    const lower = String(header.name || "").toLowerCase();
+    if (!CAPTURE_HEADERS.has(lower) || header.value == null) continue;
+    const name = lower.split("-")
       .map(part => part ? part[0].toUpperCase() + part.slice(1) : part)
       .join("-");
-    result[canonical] = String(header.value);
+    result[name] = String(header.value);
   }
   return result;
 }
 
-function _bytesToBase64(buffer) {
+function bytesToBase64(buffer) {
   const bytes = new Uint8Array(buffer);
   let binary = "";
-  const stride = 0x8000;
-  for (let index = 0; index < bytes.length; index += stride) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + stride));
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000));
   }
   return btoa(binary);
 }
 
-function _requestBody(details) {
-  const body = details.requestBody;
-  if (!body) return null;
-  if (body.formData) return { kind: "form", data: body.formData };
-  const chunks = [];
-  for (const item of body.raw || []) {
-    if (item.bytes) chunks.push(_bytesToBase64(item.bytes));
+function captureRequestBody(requestBody) {
+  if (!requestBody) return { body: null, error: "" };
+  if (requestBody.formData) {
+    const encoded = JSON.stringify(requestBody.formData);
+    if (encoded.length > MAX_CAPTURE_BODY_BYTES) {
+      return { body: null, error: "POST form exceeds Lumi's 4 MB capture limit" };
+    }
+    return { body: { kind: "form", data: requestBody.formData }, error: "" };
   }
-  if (!chunks.length) return null;
-  return { kind: "base64", data: chunks.join("") };
+
+  const rawItems = requestBody.raw || [];
+  let totalBytes = 0;
+  const chunks = [];
+  for (const item of rawItems) {
+    if (!item.bytes) continue;
+    totalBytes += item.bytes.byteLength;
+    if (totalBytes > MAX_CAPTURE_BODY_BYTES) {
+      return { body: null, error: "POST body exceeds Lumi's 4 MB capture limit" };
+    }
+    chunks.push(bytesToBase64(item.bytes));
+  }
+  if (!chunks.length) return { body: null, error: "" };
+  return { body: { kind: "base64", data: chunks.join("") }, error: "" };
 }
 
-function _rememberRequest(details) {
-  const current = _requestById.get(details.requestId) || {
+function rememberRequest(details) {
+  const current = requestsById.get(details.requestId) || {
     url: details.url,
     final_url: details.url,
     method: details.method || "GET",
     headers: {},
     post_body: null,
+    capture_error: "",
     tabId: details.tabId,
     frameId: details.frameId,
     timestamp: Date.now(),
   };
-  current.url = current.url || details.url;
+  current.url ||= details.url;
   current.final_url = details.url;
   current.method = details.method || current.method || "GET";
   current.tabId = details.tabId;
   current.frameId = details.frameId;
   current.timestamp = Date.now();
-  const body = _requestBody(details);
-  if (body) current.post_body = body;
-  _requestById.set(details.requestId, current);
-  const bucket = _requestByUrl.get(details.url) || [];
+
+  const captured = captureRequestBody(details.requestBody);
+  if (captured.body) current.post_body = captured.body;
+  if (captured.error) current.capture_error = captured.error;
+
+  requestsById.set(details.requestId, current);
+  const bucket = requestsByUrl.get(details.url) || [];
   bucket.push(current);
-  _requestByUrl.set(details.url, bucket.slice(-8));
+  requestsByUrl.set(details.url, bucket.slice(-MAX_REQUESTS_PER_URL));
   return current;
 }
 
 chrome.webRequest.onBeforeRequest.addListener(
   details => {
-    const current = _rememberRequest(details);
-    if (details.tabId >= 0 && _MEDIA_RE.test(details.url) && details.url.length >= 20) {
-      let media = _tabMedia.get(details.tabId);
+    const current = rememberRequest(details);
+    if (details.tabId >= 0 && MEDIA_RE.test(details.url) && details.url.length >= 20) {
+      let media = tabMedia.get(details.tabId);
       if (!media) {
         media = new Set();
-        _tabMedia.set(details.tabId, media);
+        tabMedia.set(details.tabId, media);
       }
       media.add(details.url);
       current.media = true;
@@ -203,8 +220,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 chrome.webRequest.onBeforeSendHeaders.addListener(
   details => {
-    const current = _requestById.get(details.requestId) || _rememberRequest(details);
-    current.headers = { ...current.headers, ..._headerObject(details.requestHeaders) };
+    const current = requestsById.get(details.requestId) || rememberRequest(details);
+    current.headers = {
+      ...current.headers,
+      ...canonicalHeaders(details.requestHeaders),
+    };
     current.timestamp = Date.now();
   },
   { urls: ["<all_urls>"] },
@@ -213,23 +233,24 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
 
 chrome.webRequest.onBeforeRedirect.addListener(
   details => {
-    const current = _requestById.get(details.requestId);
+    const current = requestsById.get(details.requestId);
     if (!current) return;
     current.final_url = details.redirectUrl;
     current.timestamp = Date.now();
-    const bucket = _requestByUrl.get(details.redirectUrl) || [];
+    const bucket = requestsByUrl.get(details.redirectUrl) || [];
     bucket.push(current);
-    _requestByUrl.set(details.redirectUrl, bucket.slice(-8));
+    requestsByUrl.set(details.redirectUrl, bucket.slice(-MAX_REQUESTS_PER_URL));
   },
   { urls: ["<all_urls>"] },
 );
 
 chrome.webRequest.onHeadersReceived.addListener(
   details => {
-    const disposition = (details.responseHeaders || [])
-      .find(header => String(header.name).toLowerCase() === "content-disposition");
+    const disposition = (details.responseHeaders || []).find(
+      header => String(header.name).toLowerCase() === "content-disposition",
+    );
     if (disposition && /attachment/i.test(disposition.value || "")) {
-      _pendingAttachUrls.set(details.url, Date.now());
+      attachmentUrls.set(details.url, Date.now());
     }
   },
   { urls: ["<all_urls>"] },
@@ -237,27 +258,27 @@ chrome.webRequest.onHeadersReceived.addListener(
 );
 
 chrome.webNavigation.onCommitted.addListener(details => {
-  if (details.frameId === 0) _tabMedia.delete(details.tabId);
+  if (details.frameId === 0) tabMedia.delete(details.tabId);
 });
 chrome.tabs.onRemoved.addListener(tabId => {
-  _tabMedia.delete(tabId);
-  _forceTabs.delete(tabId);
-  _bypassTabs.delete(tabId);
+  tabMedia.delete(tabId);
+  forceTabs.delete(tabId);
+  bypassTabs.delete(tabId);
 });
 
-function _capturedFor(url) {
-  const direct = _requestByUrl.get(url) || [];
+function capturedFor(url) {
+  const direct = requestsByUrl.get(url) || [];
   if (direct.length) return direct[direct.length - 1];
-  const withoutHash = String(url).split("#", 1)[0];
-  for (const [candidate, entries] of _requestByUrl) {
-    if (candidate.split("#", 1)[0] === withoutHash && entries.length) {
+  const withoutHash = String(url).split("#")[0];
+  for (const [candidate, entries] of requestsByUrl) {
+    if (candidate.split("#")[0] === withoutHash && entries.length) {
       return entries[entries.length - 1];
     }
   }
   return null;
 }
 
-async function _cookieHeader(url) {
+async function cookieHeader(url) {
   try {
     const cookies = await chrome.cookies.getAll({ url });
     return cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; ");
@@ -266,7 +287,7 @@ async function _cookieHeader(url) {
   }
 }
 
-async function _tabUrl(tabId) {
+async function tabUrl(tabId) {
   if (tabId == null || tabId < 0) return "";
   try {
     return (await chrome.tabs.get(tabId))?.url || "";
@@ -275,13 +296,13 @@ async function _tabUrl(tabId) {
   }
 }
 
-async function _buildEnvelope(url, item = {}, tab = null) {
-  const captured = _capturedFor(item.finalUrl || url) || _capturedFor(url) || {};
+async function buildEnvelope(url, item = {}, tab = null) {
+  const captured = capturedFor(item.finalUrl || url) || capturedFor(url) || {};
   const tabId = captured.tabId ?? tab?.id ?? -1;
-  const originalPage = item.referrer || tab?.url || await _tabUrl(tabId);
+  const originalPage = item.referrer || tab?.url || await tabUrl(tabId);
   const headers = { ...(captured.headers || {}) };
   if (!Object.keys(headers).some(name => name.toLowerCase() === "cookie")) {
-    const cookies = await _cookieHeader(item.finalUrl || url);
+    const cookies = await cookieHeader(item.finalUrl || url);
     if (cookies) headers.Cookie = cookies;
   }
   return {
@@ -291,29 +312,34 @@ async function _buildEnvelope(url, item = {}, tab = null) {
     method: captured.method || "GET",
     headers,
     ...(captured.post_body ? { post_body: captured.post_body } : {}),
-    suggested_filename: _filename(item.filename || ""),
+    ...(captured.capture_error ? { capture_error: captured.capture_error } : {}),
+    suggested_filename: filenameOf(item.filename || ""),
     browser_profile: "chromium-mv3",
     captured_at: new Date().toISOString(),
   };
 }
 
-function _filename(value) {
+function filenameOf(value) {
   return String(value || "").split(/[\\/]/).pop().trim();
 }
 
-function _extension(url) {
-  const clean = String(url || "").split(/[?#]/, 1)[0];
+function extensionOf(url) {
+  const clean = String(url || "").split(/[?#]/)[0];
   const name = clean.split("/").pop() || "";
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
 }
 
-function _localHostMode(url) {
-  let host = "";
-  try { host = new URL(url).hostname.toLowerCase(); } catch { return "auto"; }
+function localHostMode(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return "auto";
+  }
   let best = "auto";
   let bestLength = -1;
-  for (const [pattern, mode] of Object.entries(_hostModes || {})) {
+  for (const [pattern, mode] of Object.entries(hostModes || {})) {
     const normal = String(pattern).toLowerCase().replace(/^\*\./, "");
     if ((host === normal || host.endsWith(`.${normal}`)) && normal.length > bestLength) {
       best = mode;
@@ -323,13 +349,12 @@ function _localHostMode(url) {
   return best;
 }
 
-async function _hostMode(url) {
-  const local = _localHostMode(url);
-  if (local !== "auto") return local;
-  if (!_isLocalServer()) return "auto";
+async function hostMode(url) {
+  const local = localHostMode(url);
+  if (local !== "auto" || !isLocalServer()) return local;
   try {
-    const response = await _fetch(
-      `${_server}/api/browser/intercept-mode?url=${encodeURIComponent(url)}`,
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/browser/intercept-mode?url=${encodeURIComponent(url)}`,
       {},
       1500,
     );
@@ -340,7 +365,7 @@ async function _hostMode(url) {
   }
 }
 
-function _consumeTimed(map, key) {
+function consumeTimed(map, key) {
   const timestamp = map.get(key);
   if (!timestamp || Date.now() - timestamp > CONTROL_TTL_MS) {
     map.delete(key);
@@ -350,117 +375,125 @@ function _consumeTimed(map, key) {
   return true;
 }
 
-function _automaticIntercept(item, url) {
-  if (_pendingAttachUrls.has(url)) return true;
-  const extension = _extension(url);
-  if (_WEB_ASSET_EXTS.has(extension)) return false;
-  if (_DL_EXTS.has(extension)) return true;
-  if ((item.fileSize || 0) >= 2 * 1024 * 1024) return true;
-  return false;
+function automaticIntercept(item, url) {
+  if (attachmentUrls.has(url)) return true;
+  const extension = extensionOf(url);
+  if (WEB_ASSET_EXTENSIONS.has(extension)) return false;
+  if (DOWNLOAD_EXTENSIONS.has(extension)) return true;
+  return (item.fileSize || 0) >= 2 * 1024 * 1024;
 }
 
-async function _shouldIntercept(item, url, captured) {
-  if (!_interceptEnabled) return false;
-  if (_consumeTimed(_bypassUrls, url)) return false;
+async function shouldIntercept(item, url, captured) {
+  if (!interceptEnabled || consumeTimed(bypassUrls, url)) return false;
   const tabId = captured?.tabId ?? -1;
-  if (_consumeTimed(_bypassTabs, tabId)) return false;
-  if (_consumeTimed(_forceTabs, tabId)) return true;
-  const mode = await _hostMode(url);
+  if (consumeTimed(bypassTabs, tabId)) return false;
+  if (consumeTimed(forceTabs, tabId)) return true;
+  const mode = await hostMode(url);
   if (mode === "always_browser") return false;
   if (mode === "always_lumi") return true;
-  return _automaticIntercept(item, url);
+  return automaticIntercept(item, url);
 }
 
-function _cancelBrowserDownload(id) {
+function cancelBrowserDownload(id) {
   return new Promise(resolve => {
     chrome.downloads.cancel(id, () => {
-      chrome.downloads.erase({ id }, () => resolve());
+      chrome.downloads.erase({ id }, resolve);
     });
   });
 }
 
-async function _refreshRepairPending() {
-  if (!_isLocalServer()) {
-    _repairPending = null;
+async function refreshRepairPending() {
+  if (!isLocalServer()) {
+    repairPending = null;
     return null;
   }
   try {
-    const response = await _fetch(`${_server}/api/browser/repair-pending`, {}, 1800);
-    const data = await response.json();
-    _repairPending = data.pending || null;
+    const response = await fetchWithTimeout(
+      `${serverUrl}/api/browser/repair-pending`,
+      {},
+      1800,
+    );
+    repairPending = (await response.json()).pending || null;
   } catch {
-    _repairPending = null;
+    repairPending = null;
   }
-  return _repairPending;
+  return repairPending;
 }
 
-async function _repairWithEnvelope(envelope) {
-  if (!_isLocalServer()) throw new Error("Repair capture is restricted to local Lumi");
-  const response = await _fetch(`${_server}/api/browser/repair-capture`, {
+async function repairWithEnvelope(envelope) {
+  if (!isLocalServer()) throw new Error("Repair capture is restricted to local Lumi");
+  if (envelope.capture_error) throw new Error(envelope.capture_error);
+  const response = await fetchWithTimeout(`${serverUrl}/api/browser/repair-capture`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ request_envelope: envelope }),
   });
   const data = await response.json();
   if (!response.ok || data.error) throw new Error(data.error || `HTTP ${response.status}`);
-  _repairPending = null;
+  repairPending = null;
   return data;
 }
 
-chrome.downloads.onCreated.addListener(item => {
-  void _handleCreated(item);
-});
+chrome.downloads.onCreated.addListener(item => void handleCreated(item));
 
-async function _handleCreated(item) {
+async function handleCreated(item) {
   let url = item.finalUrl || item.url || "";
   if (!url || url.endsWith(".crx")) return;
-  if (_SKIP_PREFIXES.some(prefix => url.startsWith(prefix))) {
+  if (SKIP_PREFIXES.some(prefix => url.startsWith(prefix))) {
     if (!url.startsWith("blob:")) return;
     url = item.referrer || "";
     if (!url.startsWith("http")) return;
   }
 
-  const captured = _capturedFor(url);
-  const repair = _repairPending || await _refreshRepairPending();
-  if (repair) {
-    const envelope = await _buildEnvelope(url, item);
-    await _cancelBrowserDownload(item.id);
+  const captured = capturedFor(url);
+  const pending = repairPending || await refreshRepairPending();
+  if (pending) {
+    const envelope = await buildEnvelope(url, item);
+    if (envelope.capture_error) {
+      notify("Lumi DM — Repair capture skipped", envelope.capture_error);
+      return;
+    }
+    await cancelBrowserDownload(item.id);
     try {
-      const result = await _repairWithEnvelope(envelope);
-      _notify("Lumi DM — Link repaired", result.filename || repair.filename || url);
+      const result = await repairWithEnvelope(envelope);
+      notify("Lumi DM — Link repaired", result.filename || pending.filename || url);
     } catch (error) {
-      _notify("Lumi DM — Repair failed", error.message);
+      notify("Lumi DM — Repair failed", error.message);
     }
     return;
   }
 
-  if (!(await _shouldIntercept(item, url, captured))) return;
-  if (_isDuplicate(url)) {
-    await _cancelBrowserDownload(item.id);
+  if (!(await shouldIntercept(item, url, captured))) return;
+  if (isDuplicate(url)) {
+    await cancelBrowserDownload(item.id);
     return;
   }
-  if (!_isLocalServer()) {
-    _notify("Lumi DM — Capture blocked", "Request secrets can only be sent to local Lumi.");
+  if (!isLocalServer()) {
+    notify("Lumi DM — Capture blocked", "Request secrets can only be sent to local Lumi.");
     return;
   }
 
-  await _cancelBrowserDownload(item.id);
-  const envelope = await _buildEnvelope(url, item);
-  const type = url.startsWith("magnet:") || _extension(url) === "torrent"
+  const envelope = await buildEnvelope(url, item);
+  if (envelope.capture_error) {
+    notify("Lumi DM — Browser kept download", envelope.capture_error);
+    return;
+  }
+  await cancelBrowserDownload(item.id);
+  const type = url.startsWith("magnet:") || extensionOf(url) === "torrent"
     ? "torrent"
     : "auto";
-  await sendToServer(url, type, null, _filename(item.filename), envelope);
+  await sendToServer(url, type, null, filenameOf(item.filename), envelope);
 }
 
 chrome.commands.onCommand.addListener(async command => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
   if (command === "lumi-force-next") {
-    _forceTabs.set(tab.id, Date.now());
-    _notify("Lumi DM", "The next download in this tab will use Lumi.");
+    forceTabs.set(tab.id, Date.now());
+    notify("Lumi DM", "The next download in this tab will use Lumi.");
   } else if (command === "lumi-bypass-next") {
-    _bypassTabs.set(tab.id, Date.now());
-    _notify("Lumi DM", "The browser will handle the next download in this tab.");
+    bypassTabs.set(tab.id, Date.now());
+    notify("Lumi DM", "The browser will handle the next download in this tab.");
   }
 });
 
@@ -483,28 +516,32 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  void _handleContextMenu(info, tab);
+  void handleContextMenu(info, tab);
 });
 
-async function _handleContextMenu(info, tab) {
+async function handleContextMenu(info, tab) {
   const id = info.menuItemId;
   if (id === "LUMIDM-download-link" && info.linkUrl) {
-    const envelope = await _buildEnvelope(info.linkUrl, {}, tab);
-    await sendToServer(info.linkUrl, "auto", null, "", envelope);
+    await sendToServer(
+      info.linkUrl,
+      "auto",
+      null,
+      "",
+      await buildEnvelope(info.linkUrl, {}, tab),
+    );
     return;
   }
   if (id === "LUMIDM-browser-link" && info.linkUrl) {
-    _bypassUrls.set(info.linkUrl, Date.now());
+    bypassUrls.set(info.linkUrl, Date.now());
     chrome.downloads.download({ url: info.linkUrl });
     return;
   }
   if (id === "LUMIDM-repair-link" && info.linkUrl) {
     try {
-      const envelope = await _buildEnvelope(info.linkUrl, {}, tab);
-      const result = await _repairWithEnvelope(envelope);
-      _notify("Lumi DM — Link repaired", result.filename || info.linkUrl);
+      const result = await repairWithEnvelope(await buildEnvelope(info.linkUrl, {}, tab));
+      notify("Lumi DM — Link repaired", result.filename || info.linkUrl);
     } catch (error) {
-      _notify("Lumi DM — Repair failed", error.message);
+      notify("Lumi DM — Repair failed", error.message);
     }
     return;
   }
@@ -513,28 +550,32 @@ async function _handleContextMenu(info, tab) {
     return;
   }
   if (id === "LUMIDM-grab-links" && tab?.id) {
-    await _scanTabLinks(tab);
+    await scanTabLinks(tab);
     return;
   }
   if (["LUMIDM-host-always", "LUMIDM-host-browser", "LUMIDM-host-auto"].includes(id)) {
     const mode = id === "LUMIDM-host-always"
       ? "always_lumi"
       : id === "LUMIDM-host-browser" ? "always_browser" : "auto";
-    await _setHostMode(tab?.url || info.pageUrl || "", mode);
+    await setHostMode(tab?.url || info.pageUrl || "", mode);
   }
 }
 
-async function _setHostMode(url, mode) {
+async function setHostMode(url, mode) {
   let host;
-  try { host = new URL(url).hostname.toLowerCase(); } catch { return; }
-  _hostModes = { ..._hostModes };
-  if (mode === "auto") delete _hostModes[host];
-  else _hostModes[host] = mode;
-  await chrome.storage.local.set({ hostModes: _hostModes });
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return;
+  }
+  hostModes = { ...hostModes };
+  if (mode === "auto") delete hostModes[host];
+  else hostModes[host] = mode;
+  await chrome.storage.local.set({ hostModes });
 
-  if (_isLocalServer()) {
+  if (isLocalServer()) {
     try {
-      await _fetch(`${_server}/api/host-profiles`, {
+      await fetchWithTimeout(`${serverUrl}/api/host-profiles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -547,58 +588,67 @@ async function _setHostMode(url, mode) {
       });
     } catch {}
   }
-  _notify("Lumi DM", mode === "auto" ? `Automatic rules restored for ${host}` : `Rule saved for ${host}`);
+  notify(
+    "Lumi DM",
+    mode === "auto" ? `Automatic rules restored for ${host}` : `Rule saved for ${host}`,
+  );
 }
 
-async function _scanTabLinks(tab) {
+async function scanTabLinks(tab) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       func: () => {
         const extensions = new Set([
-          "zip","rar","7z","gz","tar","bz2","xz","exe","msi","dmg","pkg",
-          "deb","rpm","apk","ipa","mp4","mkv","avi","mov","webm","mp3","flac",
-          "wav","aac","ogg","pdf","epub","torrent","iso","img",
+          "zip", "rar", "7z", "gz", "tar", "bz2", "xz", "exe", "msi",
+          "dmg", "pkg", "deb", "rpm", "apk", "ipa", "mp4", "mkv", "avi",
+          "mov", "webm", "mp3", "flac", "wav", "aac", "ogg", "pdf", "epub",
+          "torrent", "iso", "img",
         ]);
         const links = [];
         const seen = new Set();
-        document.querySelectorAll("a[href]").forEach(anchor => {
+        for (const anchor of document.querySelectorAll("a[href]")) {
           const href = anchor.href || "";
-          if (!href.startsWith("http")) return;
+          if (!href.startsWith("http")) continue;
           const extension = href.split("?")[0].split(".").pop().toLowerCase();
-          if (!extensions.has(extension) || seen.has(href)) return;
+          if (!extensions.has(extension) || seen.has(href)) continue;
           seen.add(href);
           links.push({
             url: href,
             filename: anchor.textContent.trim() || href.split("/").pop(),
             ext: extension,
           });
-        });
+        }
         return links;
       },
     });
-    const links = results?.[0]?.result || [];
     await chrome.storage.local.set({
-      grabResults: { url: tab.url, links, ts: Date.now() },
+      grabResults: {
+        url: tab.url,
+        links: results?.[0]?.result || [],
+        ts: Date.now(),
+      },
     });
     await chrome.action.openPopup();
   } catch {
-    chrome.tabs.create({ url: `${_server}/?grab=${encodeURIComponent(tab.url)}` });
+    chrome.tabs.create({ url: `${serverUrl}/?grab=${encodeURIComponent(tab.url)}` });
   }
 }
 
 chrome.webNavigation.onBeforeNavigate.addListener(details => {
   if (details.frameId !== 0) return;
   const url = details.url || "";
-  if (!url.startsWith("magnet:") && _extension(url) !== "torrent") return;
+  if (!url.startsWith("magnet:") && extensionOf(url) !== "torrent") return;
   void sendToServer(url, "torrent");
-  try { chrome.tabs.remove(details.tabId); } catch {}
+  try {
+    chrome.tabs.remove(details.tabId);
+  } catch {}
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "DOWNLOAD") {
     void (async () => {
-      const envelope = await _buildEnvelope(message.url, {}, sender.tab || null);
+      const envelope = await buildEnvelope(message.url, {}, sender.tab || null);
       const result = await sendToServer(
         message.url,
         message.dlType || "auto",
@@ -612,42 +662,44 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (message.type === "GET_SNIFFED_MEDIA") {
     const tabId = message.tabId ?? sender.tab?.id ?? -1;
-    sendResponse({ ok: true, urls: tabId >= 0 ? [...(_tabMedia.get(tabId) || [])] : [] });
+    sendResponse({ ok: true, urls: tabId >= 0 ? [...(tabMedia.get(tabId) || [])] : [] });
     return false;
   }
   if (message.type === "GET_VIDEO_FORMATS") {
-    _fetch(`${_server}/api/downloads/video/formats?url=${encodeURIComponent(message.url)}`)
+    fetchWithTimeout(
+      `${serverUrl}/api/downloads/video/formats?url=${encodeURIComponent(message.url)}`,
+    )
       .then(response => response.json())
       .then(data => sendResponse({ ok: true, data }))
       .catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (message.type === "GET_STATUS") {
-    _fetch(`${_server}/api/downloads?limit=20`)
+    fetchWithTimeout(`${serverUrl}/api/downloads?limit=20`)
       .then(response => response.json())
       .then(data => sendResponse({ ok: true, data }))
       .catch(error => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (message.type === "GET_REPAIR_PENDING") {
-    void _refreshRepairPending().then(pending => sendResponse({ ok: true, pending }));
+    void refreshRepairPending().then(pending => sendResponse({ ok: true, pending }));
     return true;
   }
   if (message.type === "SET_SERVER") {
-    _server = _normaliseServer(message.server);
-    chrome.storage.local.set({ server: _server });
-    sendResponse({ ok: true, localOnly: _isLocalServer() });
+    serverUrl = normaliseServer(message.server);
+    chrome.storage.local.set({ server: serverUrl });
+    sendResponse({ ok: true, localOnly: isLocalServer() });
     return false;
   }
   if (message.type === "SET_DIR") {
-    _downloadDir = message.dir || "";
-    chrome.storage.local.set({ downloadDir: _downloadDir });
+    downloadDir = message.dir || "";
+    chrome.storage.local.set({ downloadDir });
     sendResponse({ ok: true });
     return false;
   }
   if (message.type === "SET_INTERCEPT") {
-    _interceptEnabled = message.enabled !== false;
-    chrome.storage.local.set({ interceptEnabled: _interceptEnabled });
+    interceptEnabled = message.enabled !== false;
+    chrome.storage.local.set({ interceptEnabled });
     sendResponse({ ok: true });
     return false;
   }
@@ -655,56 +707,64 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 async function sendToServer(url, type, formatId = null, filename = "", envelope = null) {
-  if (!_isLocalServer()) {
+  if (!isLocalServer()) {
     const error = "Secure request capture only supports the local Lumi server.";
-    _notify("Lumi DM — Capture blocked", error);
+    notify("Lumi DM — Capture blocked", error);
     return { error };
   }
-  if (type === "torrent" || url.startsWith("magnet:") || _extension(url) === "torrent") {
-    return _postDirect(`${_server}/api/downloads/torrent`, {
+  if (type === "torrent" || url.startsWith("magnet:") || extensionOf(url) === "torrent") {
+    return postJson(`${serverUrl}/api/downloads/torrent`, {
       url,
-      ...(_downloadDir ? { target_dir: _downloadDir } : {}),
+      ...(downloadDir ? { target_dir: downloadDir } : {}),
     });
   }
   if (type === "video") {
-    return _postDirect(`${_server}/api/downloads/video`, {
+    return postJson(`${serverUrl}/api/downloads/video`, {
       url,
       ...(formatId ? { format_id: formatId } : {}),
-      ...(_downloadDir ? { target_dir: _downloadDir } : {}),
+      ...(downloadDir ? { target_dir: downloadDir } : {}),
     });
   }
 
-  const requestEnvelope = envelope || await _buildEnvelope(url);
-  return _postDirect(`${_server}/api/downloads/start`, {
+  const requestEnvelope = envelope || await buildEnvelope(url);
+  if (requestEnvelope.capture_error) {
+    const error = requestEnvelope.capture_error;
+    notify("Lumi DM — Capture skipped", error);
+    return { error };
+  }
+  return postJson(`${serverUrl}/api/downloads/start`, {
     url,
     filename: filename || requestEnvelope.suggested_filename || "",
     request_envelope: requestEnvelope,
     duplicate_policy: "reuse",
-    ...(_downloadDir ? { target_dir: _downloadDir } : {}),
+    ...(downloadDir ? { target_dir: downloadDir } : {}),
   });
 }
 
-async function _postDirect(endpoint, body) {
+async function postJson(endpoint, body) {
   try {
-    const response = await _fetch(endpoint, {
+    const response = await fetchWithTimeout(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     const data = await response.json();
     if (!response.ok || data.error) {
-      _notify("Lumi DM — Error", data.error || `HTTP ${response.status}`);
+      notify("Lumi DM — Error", data.error || `HTTP ${response.status}`);
       return { error: data.error || `HTTP ${response.status}` };
     }
-    _notify("Lumi DM — Started", data.filename || body.url?.slice(0, 80) || "Download queued");
+    notify(
+      "Lumi DM — Started",
+      data.filename || body.url?.slice(0, 80) || "Download queued",
+    );
     return data;
   } catch (error) {
-    _notify("Lumi DM — Not reachable", `Cannot reach ${_server} — is Lumi running?`);
+    notify("Lumi DM — Not reachable", `Cannot reach ${serverUrl} — is Lumi running?`);
     return { error: error.message };
   }
 }
 
-function _notify(title, message) {
+function notify(title, message) {
   chrome.notifications.create({
     type: "basic",
     iconUrl: "icons/icon48.png",
