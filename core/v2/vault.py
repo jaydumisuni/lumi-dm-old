@@ -125,11 +125,7 @@ class LocalSecretVault:
             raise VaultError("The requested secret has an invalid structure")
         return value
 
-    def replace(
-        self,
-        reference: str,
-        payload: dict[str, Any],
-    ) -> str:
+    def replace(self, reference: str, payload: dict[str, Any]) -> str:
         new_reference = self.put(payload)
         if reference:
             self.delete(reference)
@@ -170,8 +166,8 @@ def secure_request_envelope(
 ) -> dict[str, Any]:
     """Move sensitive request fields into encrypted storage.
 
-    Existing secret references are merged so a host profile cannot accidentally
-    discard cookies or authorization captured earlier in the browser flow.
+    Existing references are merged so host credentials cannot discard cookies or
+    authorization captured earlier in the browser flow.
     """
     value = dict(envelope or {})
     headers = {
@@ -226,4 +222,18 @@ def hydrate_secret_headers(reference: str) -> dict[str, str]:
 def hydrate_post_body(reference: str) -> Any:
     if not reference:
         return None
-    return resolve_secret(reference).get("post_body")
+    body = resolve_secret(reference).get("post_body")
+    if not isinstance(body, dict):
+        return body
+    kind = str(body.get("kind") or "")
+    if kind == "form":
+        data = body.get("data") or {}
+        return {str(key): value for key, value in dict(data).items()}
+    if kind == "base64":
+        try:
+            return base64.b64decode(str(body.get("data") or ""), validate=True)
+        except (ValueError, TypeError) as exc:
+            raise VaultError("Captured POST body is not valid base64") from exc
+    if kind == "text":
+        return str(body.get("data") or "")
+    return body
