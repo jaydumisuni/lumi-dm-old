@@ -6,7 +6,7 @@ from core.v4 import install_v4
 
 # Browser capture is capped at 4 MiB. Keep enough JSON/base64 overhead for a
 # legitimate envelope while rejecting unbounded local API payloads.
-app.config.setdefault("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024
 if "lumi_wave3" not in app.blueprints:
     app.register_blueprint(wave3_api)
 install_v4(app)
