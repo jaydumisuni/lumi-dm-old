@@ -79,12 +79,25 @@ class RequestEnvelope:
         return headers
 
     def redacted_dict(self) -> dict[str, Any]:
+        """Return a public view without making API availability depend on the vault.
+
+        A damaged or temporarily unavailable vault must block replay, but it must not
+        make task listing or diagnostics crash. When decryption is unavailable, the
+        public response exposes only a generic redacted marker.
+        """
         out = asdict(self)
         sensitive = {"authorization", "cookie", "proxy-authorization"}
-        out["headers"] = {
-            key: ("<redacted>" if key.lower() in sensitive else value)
-            for key, value in self.normalized_headers(include_secrets=True).items()
-        }
+        try:
+            visible_headers = self.normalized_headers(include_secrets=True)
+            redacted_headers = {
+                key: ("<redacted>" if key.lower() in sensitive else value)
+                for key, value in visible_headers.items()
+            }
+        except Exception:
+            redacted_headers = self.normalized_headers(include_secrets=False)
+            if self.secret_headers_reference:
+                redacted_headers["Sensitive-Headers"] = "<redacted-unavailable>"
+        out["headers"] = redacted_headers
         for key in (
             "secret_headers_reference",
             "cookie_reference",
