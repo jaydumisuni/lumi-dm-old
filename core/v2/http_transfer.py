@@ -1,4 +1,8 @@
-"""Reliable adaptive HTTP transfer engine for Lumi DM v2."""
+"""Reliable adaptive HTTP transfer engine for Lumi DM v2.
+
+The engine proves range support, journals every segment, grows its connection
+formation gradually, and treats pause/cancel as controlled state transitions.
+"""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
@@ -8,7 +12,7 @@ import re
 import shutil
 import threading
 import time
-from typing import Callable, Any
+from typing import Any, Callable
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -22,22 +26,24 @@ _CHUNK_SIZE = 1024 * 1024
 _MIN_SEGMENT = 2 * 1024 * 1024
 _CONNECT_TIMEOUT = 20
 _READ_TIMEOUT = 90
+_JOURNAL_INTERVAL = 0.5
+_REPORT_INTERVAL = 0.2
 
 
 class TransferPaused(Exception):
-    pass
+    """Internal control signal for a requested pause."""
 
 
 class TransferCancelled(Exception):
-    pass
+    """Internal control signal for a requested cancellation."""
 
 
 class RemoteChangedError(RuntimeError):
-    pass
+    """The remote object no longer matches the existing partial task."""
 
 
 class RangeValidationError(RuntimeError):
-    pass
+    """A server returned a response that cannot safely satisfy a range."""
 
 
 @dataclass(slots=True)
@@ -53,14 +59,17 @@ class ProbeResult:
 
 def _filename_from_headers(response: requests.Response) -> str:
     disposition = response.headers.get("Content-Disposition", "")
-    match = re.search(r"filename\*=UTF-8''([^;]+)", disposition, re.I)
-    if match:
+    encoded = re.search(r"filename\*=UTF-8''([^;]+)", disposition, re.I)
+    if encoded:
         from urllib.parse import unquote
-        return Path(unquote(match.group(1))).name
-    match = re.search(r'filename="?([^";]+)"?', disposition, re.I)
-    if match:
-        return Path(match.group(1).strip()).name
-    from urllib.parse import urlparse, unquote
+
+        return Path(unquote(encoded.group(1))).name
+    plain = re.search(r'filename="?([^";]+)"?', disposition, re.I)
+    if plain:
+        return Path(plain.group(1).strip()).name
+
+    from urllib.parse import unquote, urlparse
+
     candidate = Path(unquote(urlparse(str(response.url)).path)).name
     return candidate or "download.bin"
 
@@ -83,13 +92,13 @@ def probe_resource(
     *,
     session: requests.Session | None = None,
 ) -> ProbeResult:
-    """Probe with a one-byte range request so range support is proven, not guessed."""
+    """Prove range support with a one-byte request instead of trusting headers."""
     own_session = session is None
     session = session or requests.Session()
     session.trust_env = False
     headers = _base_headers(envelope)
     headers["Range"] = "bytes=0-0"
-    response = None
+    response: requests.Response | None = None
     try:
         response = session.get(
             envelope.final_url or envelope.url,
@@ -100,9 +109,10 @@ def probe_resource(
         )
         if response.status_code == 206:
             parsed = _parse_content_range(response.headers.get("Content-Range", ""))
-            if not parsed or parsed[0] != 0 or parsed[1] != 0:
+            if parsed is None or parsed[0] != 0 or parsed[1] != 0:
                 raise RangeValidationError(
-                    f"Invalid probe Content-Range: {response.headers.get('Content-Range', '')}"
+                    "Invalid probe Content-Range: "
+                    f"{response.headers.get('Content-Range', '')}"
                 )
             total = parsed[2]
             range_supported = True
@@ -147,6 +157,8 @@ def validate_resume_identity(task: DownloadTask, probe: ProbeResult) -> None:
 
 
 class SegmentCoordinator:
+    """Thread-safe range ownership and largest-pending-range splitting."""
+
     def __init__(
         self,
         segments: list[SegmentState],
@@ -157,10 +169,9 @@ class SegmentCoordinator:
         self.minimum_segment = max(256 * 1024, int(minimum_segment))
         self._lock = threading.RLock()
 
-    def ensure_claimable(self, target_count: int) -> None:
-        """Split the largest pending segment until enough work exists."""
+    def ensure_pending(self, target_count: int) -> None:
         with self._lock:
-            while self._claimable_count() < target_count:
+            while self._pending_count() < target_count:
                 candidates = [
                     segment
                     for segment in self.segments
@@ -169,13 +180,13 @@ class SegmentCoordinator:
                 ]
                 if not candidates:
                     break
-                largest = max(candidates, key=lambda segment: segment.remaining)
+                largest = max(candidates, key=lambda item: item.remaining)
                 split_at = largest.next_byte + largest.remaining // 2
                 right = SegmentState(start=split_at, end=largest.end)
                 largest.end = split_at - 1
                 self.segments.append(right)
 
-    def _claimable_count(self) -> int:
+    def _pending_count(self) -> int:
         return sum(
             1
             for segment in self.segments
@@ -208,20 +219,26 @@ class SegmentCoordinator:
             segment.worker_id = ""
             segment.last_error = ""
 
-    def fail(self, segment: SegmentState, error: str, *, retry: bool) -> None:
+    def return_to_queue(self, segment: SegmentState, error: str = "") -> None:
         with self._lock:
-            segment.status = "pending" if retry else "failed"
+            segment.status = "pending"
+            segment.worker_id = ""
+            segment.last_error = error
+
+    def fail(self, segment: SegmentState, error: str) -> None:
+        with self._lock:
+            segment.status = "failed"
             segment.worker_id = ""
             segment.last_error = error
 
     def all_done(self) -> bool:
         with self._lock:
             return bool(self.segments) and all(
-                segment.remaining == 0 and segment.status == "done"
+                segment.status == "done" and segment.remaining == 0
                 for segment in self.segments
             )
 
-    def any_failed(self) -> bool:
+    def has_failed(self) -> bool:
         with self._lock:
             return any(segment.status == "failed" for segment in self.segments)
 
@@ -253,24 +270,27 @@ class HTTPTransferRunner:
         self._last_journal = 0.0
         self._last_report = 0.0
         self._speed_points: list[tuple[float, int]] = []
+        self._throttle_lock = threading.Lock()
+        self._throttle_started = time.monotonic()
+        self._throttle_bytes = 0
 
     def run(self) -> None:
         task = self._require_task()
-        session = requests.Session()
-        session.trust_env = False
+        probe_session = requests.Session()
+        probe_session.trust_env = False
         adapter = HTTPAdapter(
             pool_connections=max(2, task.connections),
             pool_maxsize=max(4, task.connections + 2),
             max_retries=0,
         )
-        session.mount("http://", adapter)
-        session.mount("https://", adapter)
+        probe_session.mount("http://", adapter)
+        probe_session.mount("https://", adapter)
         try:
             task.status = TaskStatus.RESOLVING.value
             task.started_at = task.started_at or utc_now()
             self._save(task, "resolving")
 
-            probe = probe_resource(task.request, session=session)
+            probe = probe_resource(task.request, session=probe_session)
             validate_resume_identity(task, probe)
             task.request.final_url = probe.final_url
             task.total_bytes = probe.total_bytes
@@ -285,10 +305,14 @@ class HTTPTransferRunner:
             self._ensure_disk_space(task)
             self._save(task, "resolved")
 
-            if task.range_supported and task.total_bytes >= _MIN_SEGMENT and task.connections > 1:
+            if (
+                task.range_supported
+                and task.total_bytes >= _MIN_SEGMENT
+                and task.connections > 1
+            ):
                 self._run_parallel(task)
             else:
-                self._run_single(task, session)
+                self._run_single(task, probe_session)
         except TransferPaused:
             task = self._require_task()
             task.status = TaskStatus.PAUSED.value
@@ -316,7 +340,7 @@ class HTTPTransferRunner:
             task.speed_bytes_per_sec = 0
             self._save(task, "failed", {"error": str(exc)})
         finally:
-            session.close()
+            probe_session.close()
 
     def _run_single(self, task: DownloadTask, session: requests.Session) -> None:
         partial = Path(task.partial_path)
@@ -339,10 +363,11 @@ class HTTPTransferRunner:
                 response.close()
                 raise RangeValidationError("Server ignored the resume Range request")
             parsed = _parse_content_range(response.headers.get("Content-Range", ""))
-            if not parsed or parsed[0] != existing:
+            if parsed is None or parsed[0] != existing:
                 response.close()
                 raise RangeValidationError(
-                    f"Resume started at the wrong byte: {response.headers.get('Content-Range', '')}"
+                    "Resume started at the wrong byte: "
+                    f"{response.headers.get('Content-Range', '')}"
                 )
         else:
             response.raise_for_status()
@@ -360,6 +385,7 @@ class HTTPTransferRunner:
                     continue
                 handle.write(chunk)
                 task.downloaded_bytes += len(chunk)
+                self._throttle(task, len(chunk))
                 self._report(task, started)
         self._complete_file(task, partial, final)
 
@@ -384,92 +410,122 @@ class HTTPTransferRunner:
                     segment.worker_id = ""
         else:
             segments = [SegmentState(0, task.total_bytes - 1)]
+
         coordinator = SegmentCoordinator(segments)
+        coordinator.ensure_pending(min(max(2, task.connections), 4))
         task.status = TaskStatus.RUNNING.value
         task.mode = "adaptive"
         task.downloaded_bytes = coordinator.total_downloaded()
         self._save(task, "transfer_started")
         self._write_journal(task, coordinator, force=True)
 
-        error_lock = threading.Lock()
-        fatal_errors: list[Exception] = []
+        stop_workers = threading.Event()
         success_signal = threading.Event()
-        active_threads: list[threading.Thread] = []
-        started = time.monotonic()
+        fatal_lock = threading.Lock()
+        fatal_errors: list[Exception] = []
+        workers: list[threading.Thread] = []
+        next_worker = 0
         target_workers = 1
+        started = time.monotonic()
 
         def worker(index: int) -> None:
             worker_id = f"http-{index}"
-            worker_session = requests.Session()
-            worker_session.trust_env = False
+            session = requests.Session()
+            session.trust_env = False
             adapter = HTTPAdapter(pool_connections=1, pool_maxsize=2, max_retries=0)
-            worker_session.mount("http://", adapter)
-            worker_session.mount("https://", adapter)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
             try:
-                while True:
-                    self._check_control()
+                while not stop_workers.is_set():
                     segment = coordinator.claim(worker_id)
                     if segment is None:
                         return
                     try:
-                        self._download_segment(task, segment, worker_session, coordinator, started)
+                        self._download_segment(
+                            task,
+                            segment,
+                            session,
+                            coordinator,
+                            started,
+                        )
                         coordinator.done(segment)
                         self._write_journal(task, coordinator, force=True)
                         success_signal.set()
                     except (TransferPaused, TransferCancelled):
-                        coordinator.fail(segment, "interrupted", retry=True)
-                        raise
-                    except Exception as exc:
-                        retry = segment.attempts < 3
-                        coordinator.fail(segment, str(exc), retry=retry)
+                        coordinator.return_to_queue(segment, "interrupted")
                         self._write_journal(task, coordinator, force=True)
-                        if not retry:
-                            with error_lock:
-                                fatal_errors.append(exc)
-                            return
-                        time.sleep(min(4, 2 ** max(0, segment.attempts - 1)))
+                        stop_workers.set()
+                        return
+                    except Exception as exc:
+                        if segment.attempts < 3:
+                            coordinator.return_to_queue(segment, str(exc))
+                            self._write_journal(task, coordinator, force=True)
+                            time.sleep(min(4, 2 ** max(0, segment.attempts - 1)))
+                            continue
+                        coordinator.fail(segment, str(exc))
+                        self._write_journal(task, coordinator, force=True)
+                        with fatal_lock:
+                            fatal_errors.append(exc)
+                        stop_workers.set()
+                        return
             finally:
-                worker_session.close()
+                session.close()
 
         while True:
-            self._check_control()
-            coordinator.ensure_claimable(max(4, target_workers))
-            while len(active_threads) < target_workers:
+            if self.cancel_event.is_set() or self.pause_event.is_set():
+                stop_workers.set()
+                self._write_journal(task, coordinator, force=True)
+                break
+
+            coordinator.ensure_pending(max(2, target_workers * 2))
+            alive = sum(1 for thread in workers if thread.is_alive())
+            while alive < target_workers and not stop_workers.is_set():
                 thread = threading.Thread(
                     target=worker,
-                    args=(len(active_threads),),
-                    name=f"lumi-http-{task.id[:8]}-{len(active_threads)}",
+                    args=(next_worker,),
+                    name=f"lumi-http-{task.id[:8]}-{next_worker}",
                     daemon=True,
                 )
-                active_threads.append(thread)
+                next_worker += 1
+                workers.append(thread)
                 thread.start()
+                alive += 1
 
             if coordinator.all_done():
+                stop_workers.set()
                 break
-            if fatal_errors or coordinator.any_failed():
+            if fatal_errors or coordinator.has_failed():
+                stop_workers.set()
                 break
 
-            success_signal.wait(timeout=0.5)
-            if success_signal.is_set() and target_workers < task.connections:
+            if success_signal.wait(timeout=0.25):
                 success_signal.clear()
-                target_workers = min(task.connections, max(2, target_workers * 2))
+                if target_workers < task.connections:
+                    target_workers = min(task.connections, max(2, target_workers * 2))
             self._report_from_segments(task, coordinator, started)
 
-            if active_threads and all(not thread.is_alive() for thread in active_threads):
-                if coordinator.all_done():
-                    break
-                active_threads = []
-                target_workers = min(task.connections, max(1, target_workers))
+            if workers and all(not thread.is_alive() for thread in workers):
+                if not coordinator.all_done() and not fatal_errors:
+                    coordinator.ensure_pending(max(2, target_workers))
+                    workers = []
 
-        for thread in active_threads:
+        for thread in workers:
             thread.join(timeout=5)
-        self._check_control()
+
+        task.downloaded_bytes = coordinator.total_downloaded()
+        self._report(task, started, force=True)
+        self._write_journal(task, coordinator, force=True)
+
+        if self.cancel_event.is_set():
+            raise TransferCancelled()
+        if self.pause_event.is_set():
+            raise TransferPaused()
         if fatal_errors:
             raise fatal_errors[0]
         if not coordinator.all_done():
             raise RuntimeError("Segment transfer ended before all ranges completed")
+
         task.downloaded_bytes = task.total_bytes
-        self._write_journal(task, coordinator, force=True)
         self._complete_file(task, partial, final)
 
     def _download_segment(
@@ -500,11 +556,12 @@ class HTTPTransferRunner:
         if response.status_code != 206:
             response.close()
             raise RangeValidationError(
-                f"Expected 206 for bytes {current}-{segment.end}, got {response.status_code}"
+                f"Expected 206 for bytes {current}-{segment.end}, "
+                f"got {response.status_code}"
             )
         parsed = _parse_content_range(response.headers.get("Content-Range", ""))
         if (
-            not parsed
+            parsed is None
             or parsed[0] != current
             or parsed[1] > segment.end
             or parsed[2] != task.total_bytes
@@ -513,6 +570,7 @@ class HTTPTransferRunner:
             raise RangeValidationError(
                 f"Unexpected Content-Range: {response.headers.get('Content-Range', '')}"
             )
+
         with response, Path(task.partial_path).open("r+b") as handle:
             handle.seek(current)
             for chunk in response.iter_content(_CHUNK_SIZE):
@@ -526,10 +584,12 @@ class HTTPTransferRunner:
                 current += allowed
                 coordinator.progress(segment, allowed)
                 task.downloaded_bytes = coordinator.total_downloaded()
+                self._throttle(task, allowed)
                 self._report(task, started)
                 self._write_journal(task, coordinator)
                 if current > segment.end:
                     break
+
         if current - 1 != segment.end:
             raise IOError(f"Segment ended at {current - 1}, expected {segment.end}")
 
@@ -542,20 +602,32 @@ class HTTPTransferRunner:
         task.downloaded_bytes = coordinator.total_downloaded()
         self._report(task, started)
 
-    def _report(self, task: DownloadTask, started: float) -> None:
+    def _report(
+        self,
+        task: DownloadTask,
+        started: float,
+        *,
+        force: bool = False,
+    ) -> None:
         now = time.monotonic()
-        if now - self._last_report < 0.25:
+        if not force and now - self._last_report < _REPORT_INTERVAL:
             return
         self._last_report = now
         self._speed_points.append((now, task.downloaded_bytes))
         cutoff = now - 5.0
         self._speed_points = [point for point in self._speed_points if point[0] >= cutoff]
         if len(self._speed_points) >= 2:
-            elapsed = max(0.001, self._speed_points[-1][0] - self._speed_points[0][0])
+            elapsed = max(
+                0.001,
+                self._speed_points[-1][0] - self._speed_points[0][0],
+            )
             moved = self._speed_points[-1][1] - self._speed_points[0][1]
             task.speed_bytes_per_sec = max(0.0, moved / elapsed)
         else:
-            task.speed_bytes_per_sec = task.downloaded_bytes / max(0.001, now - started)
+            task.speed_bytes_per_sec = task.downloaded_bytes / max(
+                0.001,
+                now - started,
+            )
         task.progress_percent = (
             round(task.downloaded_bytes * 100 / task.total_bytes, 2)
             if task.total_bytes
@@ -564,10 +636,22 @@ class HTTPTransferRunner:
         self.store.save_task(task)
         self.update_callback(task)
 
+    def _throttle(self, task: DownloadTask, amount: int) -> None:
+        if task.max_speed_bps <= 0:
+            return
+        with self._throttle_lock:
+            self._throttle_bytes += amount
+            expected = self._throttle_bytes / task.max_speed_bps
+            elapsed = time.monotonic() - self._throttle_started
+            delay = expected - elapsed
+        if delay > 0:
+            time.sleep(delay)
+
     def _complete_file(self, task: DownloadTask, partial: Path, final: Path) -> None:
-        if task.total_bytes and partial.stat().st_size != task.total_bytes:
+        actual = partial.stat().st_size
+        if task.total_bytes and actual != task.total_bytes:
             raise IOError(
-                f"Final size mismatch: expected {task.total_bytes}, got {partial.stat().st_size}"
+                f"Final size mismatch: expected {task.total_bytes}, got {actual}"
             )
         final.parent.mkdir(parents=True, exist_ok=True)
         os.replace(partial, final)
@@ -590,10 +674,10 @@ class HTTPTransferRunner:
         force: bool = False,
     ) -> None:
         now = time.monotonic()
-        if not force and now - self._last_journal < 0.75:
+        if not force and now - self._last_journal < _JOURNAL_INTERVAL:
             return
         with self._journal_lock:
-            if not force and now - self._last_journal < 0.75:
+            if not force and now - self._last_journal < _JOURNAL_INTERVAL:
                 return
             self._last_journal = now
             self.store.save_resume(
@@ -634,11 +718,14 @@ class HTTPTransferRunner:
             return
         destination = Path(task.partial_path).parent
         destination.mkdir(parents=True, exist_ok=True)
-        existing = Path(task.partial_path).stat().st_size if Path(task.partial_path).exists() else 0
+        partial = Path(task.partial_path)
+        existing = partial.stat().st_size if partial.exists() else 0
         needed = max(0, task.total_bytes - existing)
         free = shutil.disk_usage(destination).free
         if free < needed:
-            raise OSError(f"Not enough disk space: need {needed} bytes, have {free} bytes")
+            raise OSError(
+                f"Not enough disk space: need {needed} bytes, have {free} bytes"
+            )
 
     def _require_task(self) -> DownloadTask:
         task = self.store.get_task(self.task_id)
