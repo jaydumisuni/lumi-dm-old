@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import threading
+import time
 from typing import Any
 
 from core.v2.models import TaskStatus, utc_now
@@ -22,36 +24,72 @@ class MaintenanceService:
         self.store = store
         self.backup_dir = self.store.backup_dir
         self.backup_dir.mkdir(parents=True, exist_ok=True)
+        self._health_lock = threading.RLock()
+        self._health_cache: dict[str, Any] | None = None
+        self._health_cache_at = 0.0
 
-    def database_health(self) -> dict[str, Any]:
-        with self.store._lock:
-            integrity_rows = self.store._conn.execute(
-                "PRAGMA integrity_check"
-            ).fetchall()
-            foreign_rows = self.store._conn.execute(
-                "PRAGMA foreign_key_check"
-            ).fetchall()
-            page_count = int(
-                self.store._conn.execute("PRAGMA page_count").fetchone()[0]
-            )
-            page_size = int(
-                self.store._conn.execute("PRAGMA page_size").fetchone()[0]
-            )
-            user_version = int(
-                self.store._conn.execute("PRAGMA user_version").fetchone()[0]
-            )
-        integrity = [str(row[0]) for row in integrity_rows]
-        return {
-            "ok": integrity == ["ok"] and not foreign_rows,
-            "integrity": integrity,
-            "foreign_key_errors": [list(row) for row in foreign_rows],
-            "page_count": page_count,
-            "page_size": page_size,
-            "database_bytes": page_count * page_size,
-            "schema_version": user_version,
-            "wal_bytes": self._size(self.store.db_path.with_suffix(".db-wal")),
-            "shm_bytes": self._size(self.store.db_path.with_suffix(".db-shm")),
-        }
+    def database_health(
+        self,
+        *,
+        force: bool = False,
+        max_age_seconds: float = 60.0,
+    ) -> dict[str, Any]:
+        """Return a deep SQLite health result without scanning on every UI poll.
+
+        `PRAGMA integrity_check` walks the database and is intentionally cached for
+        overview polling. Diagnostics and repair operations request `force=True`.
+        """
+        now = time.monotonic()
+        with self._health_lock:
+            if (
+                not force
+                and self._health_cache is not None
+                and now - self._health_cache_at <= max(1.0, max_age_seconds)
+            ):
+                return dict(self._health_cache)
+
+            with self.store._lock:
+                integrity_rows = self.store._conn.execute(
+                    "PRAGMA integrity_check"
+                ).fetchall()
+                foreign_rows = self.store._conn.execute(
+                    "PRAGMA foreign_key_check"
+                ).fetchall()
+                page_count = int(
+                    self.store._conn.execute("PRAGMA page_count").fetchone()[0]
+                )
+                page_size = int(
+                    self.store._conn.execute("PRAGMA page_size").fetchone()[0]
+                )
+                user_version = int(
+                    self.store._conn.execute("PRAGMA user_version").fetchone()[0]
+                )
+            integrity = [str(row[0]) for row in integrity_rows]
+            result = {
+                "ok": integrity == ["ok"] and not foreign_rows,
+                "integrity": integrity,
+                "foreign_key_errors": [list(row) for row in foreign_rows],
+                "page_count": page_count,
+                "page_size": page_size,
+                "database_bytes": page_count * page_size,
+                "schema_version": user_version,
+                "wal_bytes": self._size(
+                    self.store.db_path.with_suffix(".db-wal")
+                ),
+                "shm_bytes": self._size(
+                    self.store.db_path.with_suffix(".db-shm")
+                ),
+                "checked_at": utc_now(),
+                "cached": False,
+            }
+            self._health_cache = result
+            self._health_cache_at = now
+            return dict(result)
+
+    def invalidate_health_cache(self) -> None:
+        with self._health_lock:
+            self._health_cache = None
+            self._health_cache_at = 0.0
 
     @staticmethod
     def _size(path: Path) -> int:
@@ -74,7 +112,9 @@ class MaintenanceService:
             backup = sqlite3.connect(temporary)
             try:
                 self.store._conn.backup(backup)
-                backup.execute("PRAGMA integrity_check")
+                integrity = backup.execute("PRAGMA integrity_check").fetchone()
+                if integrity is None or str(integrity[0]) != "ok":
+                    raise MaintenanceError("The database backup failed integrity validation")
                 backup.commit()
             finally:
                 backup.close()
@@ -87,7 +127,7 @@ class MaintenanceService:
         }
 
     def repair_database(self) -> dict[str, Any]:
-        before = self.database_health()
+        before = self.database_health(force=True)
         backup = self.backup_database("before-repair")
         with self.store._lock:
             self.store._conn.execute("PRAGMA wal_checkpoint(FULL)")
@@ -96,7 +136,8 @@ class MaintenanceService:
             self.store._conn.commit()
             self.store._conn.execute("VACUUM")
             self.store._conn.commit()
-        after = self.database_health()
+        self.invalidate_health_cache()
+        after = self.database_health(force=True)
         return {
             "status": "repaired" if after["ok"] else "needs_recovery",
             "before": before,
@@ -163,16 +204,18 @@ class MaintenanceService:
                 }
             )
             if mark:
+                already_marked = bool(task.metadata.get("file_missing"))
                 task.metadata["file_missing"] = True
                 task.metadata["completion_warning"] = (
                     "The completed file is no longer at its recorded location."
                 )
                 self.store.save_task(task)
-                self.store.append_event(
-                    task.id,
-                    "completed_file_missing",
-                    {"path": value},
-                )
+                if not already_marked:
+                    self.store.append_event(
+                        task.id,
+                        "completed_file_missing",
+                        {"path": value},
+                    )
         return {
             "scanned": scanned,
             "missing_count": len(missing),
