@@ -2,9 +2,6 @@ name: Lumi V2 Proof
 
 on:
   pull_request:
-  push:
-    branches:
-      - lumi-v2-10-for-2
 
 permissions:
   contents: read
@@ -38,10 +35,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPOSITORY: ${{ github.repository }}
-          HEAD_SHA: ${{ github.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set +e
-          pytest -q > /tmp/lumi-pytest.log 2>&1
+          python -m pytest -q > /tmp/lumi-pytest.log 2>&1
           status=$?
           cat /tmp/lumi-pytest.log
           if [ "$status" -ne 0 ]; then
@@ -49,9 +46,7 @@ jobs:
               echo "## Lumi V2 runtime proof failure"
               echo
               echo "Commit: \`$HEAD_SHA\`"
-              if [ -n "$PR_NUMBER" ]; then
-                echo "Pull request: #$PR_NUMBER"
-              fi
+              echo "Pull request: #$PR_NUMBER"
               echo
               echo '```text'
               tail -n 180 /tmp/lumi-pytest.log
@@ -70,10 +65,8 @@ jobs:
                 --body-file /tmp/lumi-proof-issue.md
             fi
 
-            if [ -n "$PR_NUMBER" ]; then
-              gh pr comment "$PR_NUMBER" --body \
-                "Runtime proof failed. The exact traceback is tracked in the open **Lumi V2 runtime proof failure** issue."
-            fi
+            gh pr comment "$PR_NUMBER" --body \
+              "Runtime proof failed. The exact traceback is tracked in the open **Lumi V2 runtime proof failure** issue."
           fi
           exit $status
 
@@ -107,7 +100,7 @@ jobs:
           sergeant pr-review . --pretty > /tmp/lumi-sergeant.log 2>&1
           status=$?
           cat /tmp/lumi-sergeant.log
-          if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
+          if [ "$status" -ne 0 ]; then
             {
               echo "### Sergeant primary review finding"
               echo
