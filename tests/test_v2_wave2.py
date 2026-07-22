@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from dataclasses import asdict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -147,9 +148,11 @@ def test_host_profile_credentials_are_vaulted_and_applied(tmp_path: Path) -> Non
     assert envelope.headers["User-Agent"] == "Lumi-Test/2"
     assert envelope.headers["Authorization"].startswith("Basic ")
 
-    secured = secure_request_envelope(tmp_path / "data", envelope.__dict__)
+    secured = secure_request_envelope(tmp_path / "data", asdict(envelope))
     assert "Authorization" not in secured["headers"]
-    assert manager.match_url(envelope.url).intercept_mode == "always_lumi"
+    matched = manager.match_url(envelope.url)
+    assert matched is not None
+    assert matched.intercept_mode == "always_lumi"
     store.close()
 
 
