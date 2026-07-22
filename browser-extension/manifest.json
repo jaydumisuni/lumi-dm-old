@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Lumi Download Manager",
   "short_name": "Lumi DM",
-  "version": "2.0.0",
+  "version": "4.0.0",
   "description": "Capture complete browser download requests and send them securely to Lumi DM.",
   "permissions": [
     "alarms",
@@ -20,7 +20,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "background-v4.js",
     "type": "module"
   },
   "action": {
