@@ -42,3 +42,10 @@ def test_browser_capture_is_bounded_and_keeps_oversized_posts_in_browser() -> No
     assert "POST body exceeds Lumi's 4 MB capture limit" in source
     assert "Browser kept download" in source
     assert "if (envelope.capture_error)" in source
+
+
+def test_local_server_rejects_unbounded_request_envelopes() -> None:
+    root = Path(__file__).resolve().parents[1]
+    launcher = (root / "server.py").read_text(encoding="utf-8")
+
+    assert 'app.config.setdefault("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)' in launcher
