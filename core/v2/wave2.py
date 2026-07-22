@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from pathlib import Path
-import re
+import time
 from typing import Any
 
 from .categories import CategoryManager, CategoryRule
@@ -12,6 +12,9 @@ from .models import RequestEnvelope, TaskStatus, TaskType
 from .resolvers import default_registry
 from .runtime import _require_runtime
 from .vault import secure_request_envelope
+
+
+_REPAIR_WAIT_KEY = "browser.repair_wait.v2"
 
 
 class Wave2Services:
@@ -64,7 +67,7 @@ class Wave2Services:
                 speed_limit_bps=max_speed_bps,
             )
         )
-        # Credentials added by a host profile must also leave the task database.
+        # Host credentials must leave the task database immediately.
         envelope = self.capture(asdict(envelope))
 
         suggested = (
@@ -157,6 +160,60 @@ class Wave2Services:
         self.runtime.store.save_task(task)
         return task.to_dict(public=True)
 
+    def set_repair_wait(
+        self,
+        task_id: str,
+        *,
+        original_page: str = "",
+        expires_in: int = 600,
+    ) -> dict[str, Any]:
+        task = self.runtime.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if task.status not in {
+            TaskStatus.NEEDS_LINK.value,
+            TaskStatus.PAUSED.value,
+            TaskStatus.FAILED.value,
+        }:
+            raise ValueError("Pause the task or wait for a link error before repair")
+        pending = {
+            "task_id": task_id,
+            "filename": task.filename,
+            "expected_size": task.total_bytes,
+            "original_page": original_page or task.request.original_page,
+            "expires_at": int(time.time()) + max(60, min(3600, int(expires_in))),
+        }
+        self.runtime.store.set_setting(_REPAIR_WAIT_KEY, pending)
+        self.runtime.store.append_event(task_id, "repair_capture_waiting", pending)
+        return pending
+
+    def get_repair_wait(self) -> dict[str, Any] | None:
+        pending = self.runtime.store.get_setting(_REPAIR_WAIT_KEY)
+        if not isinstance(pending, dict):
+            return None
+        if int(pending.get("expires_at") or 0) <= int(time.time()):
+            self.runtime.store.set_setting(_REPAIR_WAIT_KEY, None)
+            return None
+        if self.runtime.get_task(str(pending.get("task_id") or "")) is None:
+            self.runtime.store.set_setting(_REPAIR_WAIT_KEY, None)
+            return None
+        return pending
+
+    def clear_repair_wait(self) -> None:
+        self.runtime.store.set_setting(_REPAIR_WAIT_KEY, None)
+
+    def repair_from_capture(self, envelope: dict[str, Any]) -> dict[str, Any]:
+        pending = self.get_repair_wait()
+        if pending is None:
+            raise ValueError("No Lumi task is waiting for a replacement link")
+        secured = self.capture(envelope)
+        task = self.runtime.repair_link(
+            str(pending["task_id"]),
+            asdict(secured),
+        )
+        self.clear_repair_wait()
+        return task.to_dict(public=True)
+
 
 _SERVICES: Wave2Services | None = None
 
@@ -220,9 +277,7 @@ def start_torrent(
         target_dir=target_dir,
         metadata={
             "filename": (
-                url[:60]
-                if url.startswith("magnet:")
-                else Path(url).name
+                url[:60] if url.startswith("magnet:") else Path(url).name
             ),
             "connections": connections,
         },
@@ -275,8 +330,7 @@ def list_categories() -> list[dict[str, Any]]:
 
 
 def save_category(value: dict[str, Any]) -> dict[str, Any]:
-    category = CategoryRule.from_dict(value)
-    return services().categories.save(category).to_dict()
+    return services().categories.save(CategoryRule.from_dict(value)).to_dict()
 
 
 def delete_category(category_id: str) -> None:
@@ -293,9 +347,8 @@ def save_host_profile(
     username: str | None = None,
     password: str | None = None,
 ) -> dict[str, Any]:
-    profile = HostProfile.from_dict(value)
     return services().host_profiles.save(
-        profile,
+        HostProfile.from_dict(value),
         username=username,
         password=password,
     ).to_dict(public=True)
@@ -308,3 +361,28 @@ def delete_host_profile(profile_id: str) -> None:
 def host_intercept_mode(url: str) -> str:
     profile = services().host_profiles.match_url(url)
     return profile.intercept_mode if profile else "auto"
+
+
+def set_repair_wait(
+    task_id: str,
+    *,
+    original_page: str = "",
+    expires_in: int = 600,
+) -> dict[str, Any]:
+    return services().set_repair_wait(
+        task_id,
+        original_page=original_page,
+        expires_in=expires_in,
+    )
+
+
+def get_repair_wait() -> dict[str, Any] | None:
+    return services().get_repair_wait()
+
+
+def clear_repair_wait() -> None:
+    services().clear_repair_wait()
+
+
+def repair_from_capture(envelope: dict[str, Any]) -> dict[str, Any]:
+    return services().repair_from_capture(envelope)
