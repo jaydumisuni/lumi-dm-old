@@ -161,6 +161,7 @@ class MediaService:
         task.started_at = task.started_at or utc_now()
         task.mode = "yt-dlp"
         task.error = ""
+        task.error_code = ""
         self.store.save_task(task)
         self.store.append_event(task.id, "media_transfer_started")
 
@@ -241,35 +242,39 @@ class MediaService:
             with _yt_dlp.YoutubeDL(options) as downloader:
                 result = downloader.extract_info(task.request.url, download=True)
             if result:
-                prepared = downloader.prepare_filename(result)
-                if selection.audio_only:
-                    prepared = str(Path(prepared).with_suffix(f".{selection.audio_format}"))
-                task.final_path = prepared
-                task.filename = Path(prepared).name
-                if Path(prepared).is_file():
-                    task.downloaded_bytes = Path(prepared).stat().st_size
-                    task.total_bytes = task.downloaded_bytes
+                self._apply_result_path(task, result, downloader, selection)
             task.status = TaskStatus.COMPLETED.value
             task.progress_percent = 100.0
             task.speed_bytes_per_sec = 0.0
             task.finished_at = utc_now()
+            task.error = ""
+            task.error_code = ""
             self.store.save_task(task)
             self.store.append_event(task.id, "media_completed")
             return task
         except MediaPaused:
-            task.status = TaskStatus.PAUSED.value
-            task.speed_bytes_per_sec = 0.0
-            self.store.save_task(task)
-            self.store.append_event(task.id, "media_paused")
-            return task
+            return self._finish_control(task, TaskStatus.PAUSED.value, "media_paused")
         except MediaCancelled:
-            task.status = TaskStatus.CANCELLED.value
-            task.speed_bytes_per_sec = 0.0
-            task.finished_at = utc_now()
-            self.store.save_task(task)
-            self.store.append_event(task.id, "media_cancelled")
-            return task
+            return self._finish_control(
+                task,
+                TaskStatus.CANCELLED.value,
+                "media_cancelled",
+            )
         except Exception as exc:
+            # yt-dlp may wrap exceptions raised by progress hooks in its own
+            # DownloadError. The control events are the source of truth.
+            if cancel_event.is_set():
+                return self._finish_control(
+                    task,
+                    TaskStatus.CANCELLED.value,
+                    "media_cancelled",
+                )
+            if pause_event.is_set():
+                return self._finish_control(
+                    task,
+                    TaskStatus.PAUSED.value,
+                    "media_paused",
+                )
             task.status = TaskStatus.FAILED.value
             task.error = str(exc)
             task.error_code = "media_failed"
@@ -278,3 +283,53 @@ class MediaService:
             self.store.save_task(task)
             self.store.append_event(task.id, "media_failed", {"error": str(exc)})
             return task
+
+    @staticmethod
+    def _apply_result_path(task, result, downloader, selection) -> None:
+        entries = [entry for entry in (result.get("entries") or []) if entry]
+        if entries:
+            completed_files = []
+            for entry in entries:
+                try:
+                    prepared = downloader.prepare_filename(entry)
+                    if selection.audio_only:
+                        prepared = str(
+                            Path(prepared).with_suffix(f".{selection.audio_format}")
+                        )
+                    if Path(prepared).is_file():
+                        completed_files.append(prepared)
+                except Exception:
+                    continue
+            task.metadata["completed_files"] = completed_files
+            if completed_files:
+                task.final_path = completed_files[0]
+                task.filename = Path(completed_files[0]).name
+                total = sum(Path(item).stat().st_size for item in completed_files)
+                task.downloaded_bytes = total
+                task.total_bytes = total
+            return
+
+        prepared = downloader.prepare_filename(result)
+        if selection.audio_only:
+            prepared = str(Path(prepared).with_suffix(f".{selection.audio_format}"))
+        task.final_path = prepared
+        task.filename = Path(prepared).name
+        if Path(prepared).is_file():
+            task.downloaded_bytes = Path(prepared).stat().st_size
+            task.total_bytes = task.downloaded_bytes
+
+    def _finish_control(
+        self,
+        task: DownloadTask,
+        status: str,
+        event: str,
+    ) -> DownloadTask:
+        task.status = status
+        task.speed_bytes_per_sec = 0.0
+        task.error = ""
+        task.error_code = ""
+        if status == TaskStatus.CANCELLED.value:
+            task.finished_at = utc_now()
+        self.store.save_task(task)
+        self.store.append_event(task.id, event)
+        return task
