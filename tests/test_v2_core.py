@@ -83,16 +83,17 @@ def test_resume_journal_is_atomic_and_readable(tmp_path: Path) -> None:
 def test_queue_starts_high_priority_first(tmp_path: Path) -> None:
     store = StateStore(tmp_path)
     started: list[str] = []
+    low = make_task("low", status=TaskStatus.QUEUED.value, priority=1)
+    high = make_task("high", status=TaskStatus.QUEUED.value, priority=10)
+    store.save_task(low)
+    store.save_task(high)
+
     controller = QueueController(
         store,
         lambda task_id: started.append(task_id),
         max_running=1,
         poll_interval=0.02,
     )
-    low = make_task("low", status=TaskStatus.QUEUED.value, priority=1)
-    high = make_task("high", status=TaskStatus.QUEUED.value, priority=10)
-    store.save_task(low)
-    store.save_task(high)
     controller.wake()
 
     deadline = time.time() + 2
