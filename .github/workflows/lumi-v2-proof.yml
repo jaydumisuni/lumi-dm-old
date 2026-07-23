@@ -59,6 +59,9 @@ jobs:
           node --check electron/native-session-v5.js
           node --check electron/ttg-shell-bootstrap.js
           node --check electron/legacy-guards-v5.js
+          node --check electron/server-supervisor-v6.js
+          node --check electron/notification-baseline-v6.js
+          node --check electron/connection-capacity-v6.js
           node --check electron/bootstrap-v5.js
           node --check electron/desktop-command-poller.js
           node --check electron/update-manager.js
