@@ -91,10 +91,12 @@ def test_ttg_shell_and_builder_release_contract_are_packaged() -> None:
     assert "frame: false" in main
     assert 'title: "Lumi DM"' in main
     for asset in (
-        "/static/ttg-app-shell-v1.css",
-        "/static/ttg-app-shell-v1.js",
-        "/static/app-os-v5.css",
-        "/static/app-os-v5.js",
+        "/static/ttg-shell.css",
+        "/static/ttg-shell.js",
+        "/static/ttg-theme.css",
+        "/static/ttg-theme.js",
+        "/static/operating-systems.css",
+        "/static/operating-systems.js",
     ):
         assert asset in index
 
