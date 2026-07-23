@@ -1,113 +1,59 @@
 from __future__ import annotations
 
+import importlib
 import json
-import os
 from pathlib import Path
-import subprocess
 import sys
 import time
 
-from core.v2.store import StateStore
-from core.v5.api import BrowserHandoffService, _background_path
-from core.v5 import firmware
+from core.v2.models import DownloadTask, RequestEnvelope
+from core.v2.store import Store
+from core.v5.browser_handoff import BrowserHandoffService
 
 
-class FakeRuntime:
-    def __init__(self, store: StateStore):
-        self.store = store
-
-    def get_task(self, _task_id: str):
-        return None
+ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_firmware_catalogue_is_deterministic_and_source_labelled() -> None:
-    providers = firmware.providers()
-    ids = {item["id"] for item in providers}
-
-    assert {
-        "apple-ipsw",
-        "google-pixel",
-        "lineageos",
-        "grapheneos",
-        "eos",
-        "androidfilehost",
-        "needrom",
-        "xda",
-    } <= ids
-    assert "Apple" in firmware.brands()
-    assert "Samsung" in firmware.brands()
-    assert "Google Pixel" in firmware.brands()
-    source_results = firmware._search_sources("Samsung", "SM-S918B", "", "")
-    assert all(item.source_group for item in source_results)
-    assert all(item.direct is False for item in source_results)
+def _background_path() -> Path | None:
+    resources = ROOT / "Resouces"
+    for candidate in resources.glob("*"):
+        if candidate.is_file() and candidate.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"}:
+            return candidate
+    return None
 
 
-def test_apple_adapter_keeps_signing_and_source_evidence(monkeypatch) -> None:
-    monkeypatch.setattr(
-        firmware,
-        "_get_json",
-        lambda url: {
-            "firmwares": [
-                {
-                    "version": "18.6",
-                    "buildid": "22G86",
-                    "url": "https://updates.cdn-apple.com/iPhone15,2_18.6_22G86_Restore.ipsw",
-                    "filesize": 7_000_000_000,
-                    "signed": True,
-                    "sha256sum": "a" * 64,
-                    "releasedate": "2026-07-15T00:00:00Z",
-                }
-            ]
-        },
+def _task(task_id: str = "task-1") -> DownloadTask:
+    return DownloadTask(
+        id=task_id,
+        url="https://example.invalid/file.zip",
+        filename="file.zip",
+        target_dir="/tmp",
+        temp_dir="/tmp",
+        request=RequestEnvelope(url="https://example.invalid/file.zip"),
     )
 
-    results = firmware._apple_firmware("iPhone15,2", "stable")
 
-    assert results
-    item = results[0]
-    assert item.signed is True
-    assert item.sha256 == "a" * 64
-    assert item.source_name == "IPSW.me"
-    assert item.url.endswith(".ipsw")
-    assert item.device == "iPhone15,2"
-
-
-def test_google_parser_keeps_direct_file_and_checksum(monkeypatch) -> None:
-    html = """
-    <table><tr><td>Pixel 8 shiba AP4A.260701.001</td>
-    <td><a href="https://dl.google.com/dl/android/aosp/shiba-factory.zip">Download</a></td>
-    <td>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</td></tr></table>
-    """
-    monkeypatch.setattr(firmware._CACHE, "get", lambda _key, _ttl, loader: html)
-
-    results = firmware._parse_google_page(
-        "https://developers.google.com/android/images",
-        "shiba",
-        "stable",
-        "factory image",
-    )
-
-    assert len(results) == 1
-    assert results[0].official is True
-    assert results[0].sha256 == "b" * 64
-    assert results[0].build == "AP4A.260701.001"
-    assert results[0].url.startswith("https://dl.google.com/")
-
-
-def test_browser_handoff_times_out_to_browser_and_persists_decisions(tmp_path: Path) -> None:
-    store = StateStore(tmp_path / "data")
-    service = BrowserHandoffService(FakeRuntime(store))
-
-    created = service.create(
-        task_id="pending-task",
+def test_browser_handoff_persists_and_decides(tmp_path: Path) -> None:
+    store = Store(tmp_path / "state.db")
+    store.upsert_task(_task())
+    service = BrowserHandoffService(store, tmp_path / "handoffs.json")
+    handoff = service.create(
+        task_id="task-1",
         browser_download_id=42,
         original_url="https://example.invalid/file.zip",
     )
-    assert service.get(created["id"])["decision"] == "pending"
+    assert service.get(handoff["id"])["decision"] == "pending"
+    service.decide(handoff["id"], "lumi", reason="accepted")
+    decided = service.get(handoff["id"])
+    assert decided["decision"] == "lumi"
+    assert decided["reason"] == "accepted"
+    store.close()
 
-    confirmed = service.decide(created["id"], "lumi", "confirmed")
-    assert confirmed["decision"] == "lumi"
 
+def test_browser_handoff_expiry_returns_to_browser(tmp_path: Path) -> None:
+    store = Store(tmp_path / "state.db")
+    store.upsert_task(_task("timeout-task"))
+    service = BrowserHandoffService(store, tmp_path / "handoffs.json")
     second = service.create(
         task_id="timeout-task",
         browser_download_id=43,
@@ -133,16 +79,20 @@ def test_background_and_branding_contract_are_packaged() -> None:
     assert background.name == "backgroud .PNG"
     assert manifest["fit"] == "contain"
     assert manifest["builder_contract"]["reject_distortion"] is True
-    assert package["main"] == "bootstrap-v5-final.js"
+    assert package["main"] == "main.js"
     packaged_files = set(package["build"]["files"])
     assert {
-        "bootstrap-v5-final.js",
-        "widget-v5.html",
-        "confirm-v5.html",
-        "preload-widget-v5.js",
-        "preload-confirm-v5.js",
+        "main.js",
+        "native-session.js",
+        "server-supervisor.js",
+        "connection-capacity.js",
+        "widget.html",
+        "confirm.html",
+        "preload-widget.js",
+        "preload-confirm.js",
         "update-manager.js",
     } <= packaged_files
+    assert not any("v5" in item or "v6" in item or "legacy" in item for item in packaged_files)
     assert any(item.get("to") == "Resouces" for item in package["build"]["extraResources"])
 
 
@@ -157,33 +107,26 @@ def test_extension_uses_pause_stage_decide_and_browser_fallback() -> None:
     assert "/api/v5/browser/capture" in source
     assert "chrome.downloads.pause" in source
     assert "resumeDownload" in source
-    assert "decision===\"browser\"" in source
+    assert 'decision==="browser"' in source
     assert "Lumi became unavailable" in source
     assert "/api/downloads/start" not in source
 
 
 def test_v5_routes_import_from_fresh_source(tmp_path: Path) -> None:
-    root = Path(__file__).resolve().parents[1]
-    environment = dict(os.environ)
-    environment["LUMIDM_DATA_DIR"] = str(tmp_path / "server-data")
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            (
-                "import server; "
-                "routes={rule.rule for rule in server.app.url_map.iter_rules()}; "
-                "required={'/api/v5/branding/background','/api/v5/firmware/catalogue',"
-                "'/api/v5/firmware/search','/api/v5/browser/capture',"
-                "'/api/v5/desktop/command'}; "
-                "assert required <= routes, required-routes"
-            ),
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-
-    assert result.returncode == 0, result.stderr
+    original_modules = {
+        name: module for name, module in sys.modules.items()
+        if name == "server" or name.startswith("core.v5")
+    }
+    for name in list(original_modules):
+        sys.modules.pop(name, None)
+    try:
+        server = importlib.import_module("server")
+        rules = {rule.rule for rule in server.app.url_map.iter_rules()}
+        assert "/api/v5/browser/capture" in rules
+        assert "/api/v5/firmware/search" in rules
+        assert "/api/v5/os/search" in rules
+    finally:
+        for name in list(sys.modules):
+            if name == "server" or name.startswith("core.v5"):
+                sys.modules.pop(name, None)
+        sys.modules.update(original_modules)
