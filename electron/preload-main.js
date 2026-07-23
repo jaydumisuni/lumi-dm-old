@@ -8,6 +8,15 @@ contextBridge.exposeInMainWorld('electronApp', {
   saveDesktopSettings: (value) => ipcRenderer.invoke('v5-desktop-settings-save', value),
   showWidget: () => ipcRenderer.send('v5-widget-show'),
   checkForUpdates: (manual = false) => ipcRenderer.invoke('v5-update-check', manual),
+  windowControl: (action) => ipcRenderer.invoke('ttg-window-control', action),
+  getWindowState: () => ipcRenderer.invoke('ttg-window-state'),
+  getAppInfo: () => ipcRenderer.invoke('ttg-app-info'),
+  onWindowState: (callback) => {
+    if (typeof callback !== 'function') return () => {};
+    const listener = (_event, value) => callback(value || {});
+    ipcRenderer.on('ttg-window-state-changed', listener);
+    return () => ipcRenderer.removeListener('ttg-window-state-changed', listener);
+  },
   onUpdateStatus: (callback) => {
     if (typeof callback !== 'function') return () => {};
     const listener = (_event, value) => callback(value);
