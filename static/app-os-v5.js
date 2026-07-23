@@ -1,68 +1,70 @@
 "use strict";
 
-/* Computer operating systems inside the Firmware workspace. */
+/* Lumi computer operating-system workspace. */
 (() => {
   const osState = {
-    mode: sessionStorage.getItem("LUMI.catalogueMode") || "mobile",
     catalogue: null,
     results: [],
     loading: false,
-    rendering: false,
-    family: "Windows",
+    family: sessionStorage.getItem("LUMI.osFamily") || "Windows",
   };
 
+  try {
+    viewMeta.operating_systems = [
+      "Operating systems",
+      "Official Windows, macOS and Linux installation files",
+    ];
+  } catch (_) {}
+
   window.addEventListener("DOMContentLoaded", () => {
-    const view = document.getElementById("view-firmware");
+    const view = document.getElementById("view-operating_systems");
     if (!view) return;
-    view.addEventListener("change", handleChange, true);
-    view.addEventListener("submit", handleSubmit, true);
-    view.addEventListener("click", handleClick, true);
-    new MutationObserver(() => enhanceFirmwareView()).observe(view, { childList: true, subtree: true });
-    enhanceFirmwareView();
+    view.addEventListener("click", handleClick);
+    view.addEventListener("submit", handleSubmit);
+    document.querySelector('[data-view="operating_systems"]')?.addEventListener("click", () => {
+      setTimeout(() => void renderOsView(), 0);
+    });
   });
 
-  function enhanceFirmwareView() {
-    if (osState.rendering) return;
-    const view = document.getElementById("view-firmware");
-    if (!view) return;
-    if (osState.mode === "os") {
-      if (!view.querySelector("#os-catalogue-form")) void renderOsView();
-      return;
-    }
-    const shell = view.querySelector(".firmware-shell");
-    if (!shell || shell.querySelector(".catalogue-mode-bar")) return;
-    shell.insertAdjacentHTML("afterbegin", modeBarHtml("mobile"));
-  }
-
-  function modeBarHtml(mode) {
-    return `<div class="catalogue-mode-bar">
-      <div class="catalogue-mode-copy"><strong>Technician download catalogue</strong><small>Mobile firmware and computer operating systems remain separated and source-labelled.</small></div>
-      <label>Catalogue<select class="select" data-catalogue-mode><option value="mobile" ${mode === "mobile" ? "selected" : ""}>Mobile firmware</option><option value="os" ${mode === "os" ? "selected" : ""}>Computer operating systems</option></select></label>
-    </div>`;
-  }
-
   async function loadCatalogue() {
-    if (osState.catalogue) return osState.catalogue;
-    osState.catalogue = await osApi("GET", "/api/v5/os/catalogue");
+    if (!osState.catalogue) osState.catalogue = await osApi("GET", "/api/v5/os/catalogue");
     return osState.catalogue;
   }
 
   async function renderOsView() {
-    const view = document.getElementById("view-firmware");
-    if (!view || osState.rendering) return;
-    osState.rendering = true;
+    const view = document.getElementById("view-operating_systems");
+    if (!view) return;
+    let catalogue;
     try {
-      let catalogue;
-      try { catalogue = await loadCatalogue(); }
-      catch (error) { catalogue = { families: ["Windows", "macOS", "Linux"], options: {}, warning: error.message }; }
-      view.innerHTML = `<div class="firmware-shell os-catalogue-shell">
-        ${modeBarHtml("os")}
-        <section class="firmware-hero"><h2>Computer Operating Systems</h2><p>Choose Windows, macOS or Linux, then narrow the version, edition, architecture and channel. Official files remain first; helper or index sources are clearly identified before download.</p><div class="firmware-warning"><span>⚠</span><span>${osEsc(catalogue.warning || "Verify the edition, architecture and checksum before installation.")}</span></div></section>
-        <div class="os-platform-grid">${["Windows", "macOS", "Linux"].map(family => `<button class="os-platform-card ${osState.family === family ? "active" : ""}" type="button" data-os-family="${family}"><strong>${family}</strong><small>${family === "Windows" ? "Microsoft retail ISOs" : family === "macOS" ? "Full installers and restore files" : "Official distribution images"}</small></button>`).join("")}</div>
+      catalogue = await loadCatalogue();
+    } catch (error) {
+      catalogue = {
+        families: ["Windows", "macOS", "Linux"],
+        options: {},
+        warning: error.message,
+      };
+    }
+    view.innerHTML = `
+      <div class="firmware-shell os-catalogue-shell">
+        <section class="firmware-hero os-hero">
+          <div class="os-hero-copy">
+            <small>Technician catalogue</small>
+            <h2>Computer Operating Systems</h2>
+            <p>Choose Windows, macOS or Linux, then narrow the version, edition, language, architecture and channel. Official files remain first. Helpers and indexes are clearly labelled before download.</p>
+          </div>
+          <div class="firmware-warning"><span>⚠</span><span>${osEsc(catalogue.warning || "Verify the edition, architecture and checksum before installation.")}</span></div>
+        </section>
+        <div class="os-platform-grid">
+          ${["Windows", "macOS", "Linux"].map(family => `
+            <button class="os-platform-card ${osState.family === family ? "active" : ""}" type="button" data-os-family="${family}">
+              <span class="os-platform-icon">${family === "Windows" ? "⊞" : family === "macOS" ? "◉" : "◆"}</span>
+              <strong>${family}</strong>
+              <small>${family === "Windows" ? "Microsoft retail ISO files" : family === "macOS" ? "Installers and restore images" : "Official distribution images"}</small>
+            </button>`).join("")}
+        </div>
         <div id="os-filter-host">${osFilterHtml(catalogue, osState.family)}</div>
         <div id="os-results">${osResultsHtml()}</div>
       </div>`;
-    } finally { osState.rendering = false; }
   }
 
   function osFilterHtml(catalogue, family) {
@@ -81,23 +83,11 @@
     </form>`;
   }
 
-  async function handleChange(event) {
-    const mode = event.target.closest("[data-catalogue-mode]");
-    if (mode) {
-      osState.mode = mode.value;
-      sessionStorage.setItem("LUMI.catalogueMode", osState.mode);
-      if (osState.mode === "os") await renderOsView();
-      else {
-        if (typeof renderFirmware === "function") renderFirmware();
-        else location.reload();
-      }
-    }
-  }
-
   async function handleClick(event) {
     const familyButton = event.target.closest("[data-os-family]");
     if (familyButton) {
       osState.family = familyButton.dataset.osFamily;
+      sessionStorage.setItem("LUMI.osFamily", osState.family);
       osState.results = [];
       await renderOsView();
       return;
@@ -121,13 +111,11 @@
   async function handleSubmit(event) {
     if (event.target.id !== "os-catalogue-form") return;
     event.preventDefault();
-    event.stopImmediatePropagation();
     const data = Object.fromEntries(new FormData(event.target).entries());
     osState.loading = true;
     updateResults();
     try {
-      const params = new URLSearchParams(data);
-      const response = await osApi("GET", `/api/v5/os/search?${params}`);
+      const response = await osApi("GET", `/api/v5/os/search?${new URLSearchParams(data)}`);
       osState.results = response.results || [];
     } catch (error) {
       osState.results = [];
@@ -148,7 +136,11 @@
     if (!osState.results.length) return `<div class="empty"><div class="empty-icon">◫</div><strong>Select Windows, macOS or Linux</strong>Choose a version, edition and architecture, then search.</div>`;
     const groups = {};
     for (const item of osState.results) (groups[item.source_group || "Operating systems"] ||= []).push(item);
-    return `<div class="firmware-groups">${Object.entries(groups).map(([group, items]) => `<section class="firmware-group"><div class="firmware-group-head"><h3>${osEsc(group)}</h3><span>${items.length} result${items.length === 1 ? "" : "s"}</span></div><div class="firmware-list">${items.map(osCard).join("")}</div></section>`).join("")}</div>`;
+    return `<div class="firmware-groups">${Object.entries(groups).map(([group, items]) => `
+      <section class="firmware-group">
+        <div class="firmware-group-head"><h3>${osEsc(group)}</h3><span>${items.length} result${items.length === 1 ? "" : "s"}</span></div>
+        <div class="firmware-list">${items.map(osCard).join("")}</div>
+      </section>`).join("")}</div>`;
   }
 
   function osCard(item) {
@@ -159,7 +151,7 @@
       <div class="firmware-card-head"><div class="firmware-source-icon">${item.official ? "✓" : resolver ? "W" : "⌁"}</div><div class="firmware-title"><h4>${osEsc(item.title || item.filename || item.source_name)}</h4><p>${osEsc(item.source_name)} · ${osEsc(item.device || item.brand)}</p></div></div>
       <div class="firmware-badges"><span class="firmware-badge ${item.official ? "good" : "warn"}">${item.official ? "Official source" : resolver ? "Official-file helper" : "Source index"}</span>${item.channel ? `<span class="firmware-badge">${osEsc(item.channel)}</span>` : ""}${item.file_type ? `<span class="firmware-badge">${osEsc(item.file_type)}</span>` : ""}</div>
       <div class="firmware-details"><div class="firmware-detail"><span>Version</span><strong>${osEsc(item.version || "—")}</strong></div><div class="firmware-detail"><span>Architecture</span><strong>${osEsc(item.metadata?.architecture || item.device || "—")}</strong></div><div class="firmware-detail"><span>Size / host</span><strong>${item.size ? osFmtBytes(item.size) : osEsc(host || "—")}</strong></div></div>
-      ${item.sha256 ? `<div class="firmware-detail"><span>SHA-256</span><strong class="os-checksum good" title="${osEsc(item.sha256)}">${osEsc(item.sha256)}</strong></div>` : ""}
+      ${item.sha256 ? `<div class="firmware-detail os-checksum-row"><span>SHA-256</span><strong class="os-checksum good" title="${osEsc(item.sha256)}">${osEsc(item.sha256)}</strong></div>` : ""}
       <div class="firmware-notes">${osEsc(item.notes || "Confirm compatibility and verify the source before installation.")}</div>
       ${resolver ? `<div class="os-licence">Fido is an external GPLv3 helper by Pete Batard. Lumi requests a temporary Microsoft-hosted retail ISO URL only after you click Resolve.</div>` : ""}
       <div class="firmware-actions">${resolver ? `<button class="btn primary" type="button" data-os-action="resolve" data-index="${index}">Resolve official link</button>` : item.direct && item.url ? `<button class="btn primary" type="button" data-os-action="download" data-index="${index}">↓ Download in Lumi</button>` : ""}${item.url ? `<button class="btn" type="button" data-os-action="copy" data-index="${index}">Copy URL</button>` : ""}${item.source_url || item.url ? `<button class="btn" type="button" data-os-action="source" data-index="${index}">Open source</button>` : ""}</div>
@@ -180,7 +172,7 @@
       });
       osState.results.unshift(response.result);
       updateResults();
-      osToast("Official Microsoft link resolved", "The temporary retail ISO URL is ready. Confirm it before starting the download.", "success");
+      osToast("Official Microsoft link resolved", "The temporary Microsoft ISO URL is ready. Confirm it before starting the download.", "success");
     } catch (error) {
       osToast("Windows link not resolved", error.message, "error");
     } finally {
@@ -199,29 +191,51 @@
     button.disabled = true;
     try {
       const task = await osApi("POST", "/api/v5/os/stage", {
-        url: item.url, filename: item.filename || "", target_dir: targetDir,
-        family, distribution: item.metadata?.distribution || "", version: item.version,
-        edition: item.file_type, architecture: item.metadata?.architecture || item.device,
-        channel: item.channel, provider: item.provider, source_name: item.source_name,
-        source_url: item.source_url, sha256: item.sha256,
+        url: item.url,
+        filename: item.filename || "",
+        target_dir: targetDir,
+        family,
+        distribution: item.metadata?.distribution || "",
+        version: item.version,
+        edition: item.file_type,
+        architecture: item.metadata?.architecture || item.device,
+        channel: item.channel,
+        provider: item.provider,
+        source_name: item.source_name,
+        source_url: item.source_url,
+        sha256: item.sha256,
       });
-      await osApi("POST", `/api/downloads/${encodeURIComponent(task.id)}/confirm`, { filename: task.filename, target_dir: targetDir, connections: 0 });
+      await osApi("POST", `/api/downloads/${encodeURIComponent(task.id)}/confirm`, {
+        filename: task.filename,
+        target_dir: targetDir,
+        connections: 0,
+      });
       if (typeof refreshFoundation === "function") await refreshFoundation();
       osToast("Operating system queued", item.filename || item.title, "success");
       if (typeof switchView === "function") switchView("downloads");
     } catch (error) {
       osToast("Operating system not queued", error.message, "error");
-    } finally { button.disabled = false; }
+    } finally {
+      button.disabled = false;
+    }
   }
 
   async function copyOsUrl(item) {
-    try { await navigator.clipboard.writeText(item.url || item.source_url); osToast("URL copied", item.filename || item.source_name, "success"); }
-    catch { osToast("Could not copy", "Open the source and copy the link manually.", "error"); }
+    try {
+      await navigator.clipboard.writeText(item.url || item.source_url);
+      osToast("URL copied", item.filename || item.source_name, "success");
+    } catch {
+      osToast("Could not copy", "Open the source and copy the link manually.", "error");
+    }
   }
 
   async function osApi(method, path, body = null) {
     if (typeof v5Api === "function") return v5Api(method, path, body);
-    const response = await fetch(path, { method, headers: body ? { "Content-Type": "application/json" } : {}, ...(body ? { body: JSON.stringify(body) } : {}) });
+    const response = await fetch(path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || `${method} ${path} failed`);
     return data;
