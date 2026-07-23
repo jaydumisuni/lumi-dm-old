@@ -152,12 +152,13 @@ def test_background_and_branding_contract_are_packaged() -> None:
 
 def test_extension_uses_pause_stage_decide_and_browser_fallback() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = (root / "browser-extension" / "background-v5.js").read_text(encoding="utf-8")
-    loader = (root / "browser-extension" / "background-v4.js").read_text(encoding="utf-8")
+    source = (root / "browser-extension" / "browser-bridge.js").read_text(encoding="utf-8")
+    loader = (root / "browser-extension" / "background.js").read_text(encoding="utf-8")
     manifest = json.loads((root / "browser-extension" / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["background"]["service_worker"] == "background-v4.js"
-    assert 'import "./background-v5.js"' in loader
+    assert manifest["background"]["service_worker"] == "background.js"
+    assert 'import "./browser-bridge.js"' in loader
+    assert 'import "./notification-guard.js"' in loader
     assert "/api/v5/browser/capture" in source
     assert "chrome.downloads.pause" in source
     assert "resumeDownload" in source
