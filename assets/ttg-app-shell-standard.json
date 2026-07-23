@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "standard_id": "ttg-app-shell-v1",
+  "owner": "THETECHGUY DIGITAL SOLUTIONS",
+  "status": "locked",
+  "window": {
+    "native_frame": false,
+    "border_radius_px": 12,
+    "outer_border": "1px purple-blue accent",
+    "background": "deep navy-black",
+    "shadow": "soft, restrained",
+    "minimum_titlebar_height_px": 42
+  },
+  "titlebar": {
+    "left": ["app_icon", "app_name", "optional_product_family"],
+    "right": [
+      "notification_bell",
+      "settings_gear",
+      "separator",
+      "minimize",
+      "maximize_restore",
+      "close"
+    ],
+    "drag_region": "all empty titlebar space",
+    "no_drag_regions": ["buttons", "menus", "inputs"],
+    "window_controls": {
+      "style": "minimal line icons",
+      "close_hover": "red",
+      "other_hover": "soft purple-blue"
+    }
+  },
+  "notification_bell": {
+    "opens": "compact dropdown",
+    "shows": ["pending actions", "completed work", "warnings", "available updates"],
+    "click_behavior": "route directly to the relevant record or view",
+    "badge": "unread count only"
+  },
+  "settings_gear": {
+    "single_settings_entry": true,
+    "menu_order": [
+      "Settings",
+      "Check for updates",
+      "Help",
+      "About",
+      "Advanced diagnostics"
+    ]
+  },
+  "branding": {
+    "logo_fit": "contain",
+    "preserve_aspect_ratio": true,
+    "reject_stretching": true,
+    "high_dpi": true
+  },
+  "builder_contract": {
+    "apply_to_all_ttg_desktop_apps": true,
+    "generate_custom_titlebar": true,
+    "remove_platform_default_titlebar": true,
+    "test_windows_scaling_percent": [100, 125, 150, 200],
+    "test_states": ["normal", "maximized", "minimized", "inactive", "notification_open", "settings_open"]
+  }
+}

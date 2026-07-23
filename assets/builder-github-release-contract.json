@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "contract_id": "ttg-builder-github-release-v1",
+  "enabled_when": {
+    "project_has_github_repository": true,
+    "repository_format": "owner/name",
+    "token_environment_variables": ["GITHUB_TOKEN", "GH_TOKEN"]
+  },
+  "security": {
+    "never_store_token_in_project": true,
+    "minimum_token_scope": "contents:write for the target repository",
+    "use_https_api": true,
+    "show_target_repository_before_publish": true,
+    "require_explicit_publish_confirmation": true
+  },
+  "release": {
+    "required": ["repository", "tag", "title", "assets"],
+    "optional": ["notes", "draft", "prerelease", "target_commitish"],
+    "tag_example": "v1.2.0",
+    "replace_same_name_assets": true,
+    "generate_sha256_sidecars": true,
+    "upload_installer_and_portable_assets": true
+  },
+  "builder_ui": {
+    "section": "Release > GitHub",
+    "fields": [
+      "Repository URL or owner/name",
+      "Release tag",
+      "Release title",
+      "Release notes",
+      "Stable or prerelease",
+      "Draft or publish now",
+      "Assets to upload"
+    ],
+    "actions": ["Validate repository", "Create draft release", "Publish release"],
+    "result": ["Release URL", "Uploaded assets", "SHA-256 files", "Failure evidence"]
+  },
+  "implementation": {
+    "publisher": "scripts/publish_github_release.py",
+    "github_api_version": "2022-11-28",
+    "update_compatibility": "Lumi updater requires a matching installer plus a .sha256 sidecar or GitHub asset digest"
+  }
+}

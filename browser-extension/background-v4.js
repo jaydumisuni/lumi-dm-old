@@ -1,2 +1,1 @@
-import "./security-shim.js";
-import "./background.js";
+import "./background-v5.js";

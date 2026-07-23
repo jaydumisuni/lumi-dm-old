@@ -11,7 +11,7 @@ permissions:
 jobs:
   runtime-proof:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout source
@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up Node for extension syntax proof
+      - name: Set up Node for desktop and extension syntax proof
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -32,14 +32,42 @@ jobs:
           python -m pip install --disable-pip-version-check -q -r requirements.txt pytest
 
       - name: Compile Python source
-        run: python -m compileall -q core server.py tests
+        run: python -m compileall -q core server.py scripts tests
+
+      - name: Validate manifests and packaging configuration
+        run: |
+          python -m json.tool browser-extension/manifest.json >/dev/null
+          python -m json.tool assets/branding-manifest.json >/dev/null
+          python -m json.tool assets/ttg-app-shell-standard.json >/dev/null
+          python -m json.tool assets/builder-github-release-contract.json >/dev/null
+          python -m json.tool electron/package.json >/dev/null
 
       - name: Validate browser extension source
         run: |
-          python -m json.tool browser-extension/manifest.json >/dev/null
-          node --check browser-extension/background.js
+          node --check browser-extension/background-v4.js
+          node --check browser-extension/background-v5.js
           node --check browser-extension/content.js
+          node --check browser-extension/content-v5.js
           node --check browser-extension/popup.js
+          node --check browser-extension/popup-security.js
+          node --check browser-extension/popup-v5.js
+          node --check browser-extension/security-shim.js
+
+      - name: Validate desktop and final UI source
+        run: |
+          node --check electron/bootstrap-v5-final.js
+          node --check electron/native-session-v5.js
+          node --check electron/ttg-shell-bootstrap.js
+          node --check electron/legacy-guards-v5.js
+          node --check electron/bootstrap-v5.js
+          node --check electron/desktop-command-poller.js
+          node --check electron/update-manager.js
+          node --check electron/preload-main.js
+          node --check electron/preload-widget-v5.js
+          node --check electron/preload-confirm-v5.js
+          node --check static/app-v5.js
+          node --check static/app-os-v5.js
+          node --check static/ttg-app-shell-v1.js
 
       - name: Run Lumi runtime proofs
         shell: bash
@@ -62,7 +90,7 @@ jobs:
               echo "Pull request: #$PR_NUMBER"
               echo
               echo '```text'
-              tail -n 220 /tmp/lumi-pytest.log
+              tail -n 300 /tmp/lumi-pytest.log
               echo '```'
             } > /tmp/lumi-proof-issue.md
 
@@ -118,7 +146,7 @@ jobs:
               echo "### Sergeant primary review finding"
               echo
               echo '```text'
-              tail -n 240 /tmp/lumi-sergeant.log
+              tail -n 300 /tmp/lumi-sergeant.log
               echo '```'
             } > /tmp/lumi-sergeant-comment.md
             gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-sergeant-comment.md
