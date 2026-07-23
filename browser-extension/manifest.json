@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Lumi Download Manager",
   "short_name": "Lumi DM",
-  "version": "4.0.0",
-  "description": "Capture complete browser download requests and send them securely to Lumi DM.",
+  "version": "5.0.0",
+  "description": "Securely stage browser downloads in Lumi, choose options in the corner popup, and safely fall back to the browser.",
   "permissions": [
     "alarms",
     "contextMenus",
@@ -20,7 +20,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background-v4.js",
+    "service_worker": "background-v5.js",
     "type": "module"
   },
   "action": {
@@ -51,7 +51,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["content.js", "content-v5.js"],
       "run_at": "document_idle"
     }
   ],
