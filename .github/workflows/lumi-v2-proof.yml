@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Set up Node for desktop and extension syntax proof
+      - name: Set up Node for desktop, UI and extension syntax proof
         uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -56,7 +56,7 @@ jobs:
           node --check browser-extension/security-shim.js
           node tests/notification_guard_proof.js
 
-      - name: Validate consolidated desktop and final UI source
+      - name: Validate consolidated desktop and web UI source
         run: |
           node --check electron/main.js
           node --check electron/native-session.js
@@ -67,10 +67,12 @@ jobs:
           node --check electron/preload-main.js
           node --check electron/preload-widget.js
           node --check electron/preload-confirm.js
-          node --check static/app-v5.js
-          node --check static/app-os-v5.js
-          node --check static/ttg-app-shell-v1.js
-          node --check static/ttg-app-shell-v2.js
+          node --check static/app.js
+          node --check static/app-hardening.js
+          node --check static/technician-workspaces.js
+          node --check static/operating-systems.js
+          node --check static/ttg-shell.js
+          node --check static/ttg-theme.js
 
       - name: Run Lumi runtime proofs
         shell: bash
