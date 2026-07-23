@@ -42,6 +42,7 @@ jobs:
 
       - name: Validate browser extension source
         run: |
+          node --check browser-extension/background-v4.js
           node --check browser-extension/background-v5.js
           node --check browser-extension/content.js
           node --check browser-extension/content-v5.js
@@ -53,6 +54,9 @@ jobs:
       - name: Validate desktop and final UI source
         run: |
           node --check electron/bootstrap-v5-final.js
+          node --check electron/native-session-v5.js
+          node --check electron/ttg-shell-bootstrap.js
+          node --check electron/legacy-guards-v5.js
           node --check electron/bootstrap-v5.js
           node --check electron/desktop-command-poller.js
           node --check electron/update-manager.js
