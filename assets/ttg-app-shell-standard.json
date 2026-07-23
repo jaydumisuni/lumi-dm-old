@@ -1,15 +1,18 @@
 {
-  "schema_version": 1,
-  "standard_id": "ttg-app-shell-v1",
+  "schema_version": 2,
+  "standard_id": "ttg-app-shell-v2",
   "owner": "THETECHGUY DIGITAL SOLUTIONS",
   "status": "locked",
+  "visual_reference": "MIBU PC Helper custom frameless shell",
   "window": {
     "native_frame": false,
     "border_radius_px": 12,
+    "maximized_border_radius_px": 0,
     "outer_border": "1px purple-blue accent",
     "background": "deep navy-black",
     "shadow": "soft, restrained",
-    "minimum_titlebar_height_px": 42
+    "titlebar_height_px": 43,
+    "remember_size_and_position": true
   },
   "titlebar": {
     "left": ["app_icon", "app_name", "optional_product_family"],
@@ -33,10 +36,12 @@
     "opens": "compact dropdown",
     "shows": ["pending actions", "completed work", "warnings", "available updates"],
     "click_behavior": "route directly to the relevant record or view",
-    "badge": "unread count only"
+    "badge": "unread count only",
+    "not_a_sidebar_page": true
   },
   "settings_gear": {
     "single_settings_entry": true,
+    "appearance_control": ["System", "Dark", "Light"],
     "menu_order": [
       "Settings",
       "Check for updates",
@@ -44,6 +49,24 @@
       "About",
       "Advanced diagnostics"
     ]
+  },
+  "diagnostics": {
+    "everyday_navigation": false,
+    "entry": "Settings gear > Advanced diagnostics",
+    "purpose": [
+      "health checks",
+      "sanitized logs",
+      "database backup and repair",
+      "missing-file detection",
+      "extension and authentication status",
+      "support evidence export"
+    ]
+  },
+  "navigation": {
+    "settings_in_sidebar": false,
+    "diagnostics_in_sidebar": false,
+    "technician_sections": ["Mobile firmware", "Operating systems"],
+    "operating_system_families": ["Windows", "macOS", "Linux"]
   },
   "branding": {
     "logo_fit": "contain",
@@ -55,7 +78,17 @@
     "apply_to_all_ttg_desktop_apps": true,
     "generate_custom_titlebar": true,
     "remove_platform_default_titlebar": true,
+    "generate_bell_and_gear_menus": true,
     "test_windows_scaling_percent": [100, 125, 150, 200],
-    "test_states": ["normal", "maximized", "minimized", "inactive", "notification_open", "settings_open"]
+    "test_states": [
+      "normal",
+      "maximized",
+      "minimized",
+      "inactive",
+      "notification_open",
+      "settings_open",
+      "light_theme",
+      "dark_theme"
+    ]
   }
 }
