@@ -6,7 +6,7 @@
   "appName": "Lumi DM",
   "appVersion": "1.0.0",
   "projectType": "electron",
-  "entryFile": "electron/bootstrap-v5-final.js",
+  "entryFile": "electron/main.js",
   "logo": "static/favicon-96.png",
   "icon": "assets/windows/Lumi-DM.ico",
   "description": "Fast multi-source download manager with browser capture, media, torrents, firmware, operating-system images and technician workflows.",
