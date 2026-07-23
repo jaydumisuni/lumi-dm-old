@@ -166,9 +166,7 @@ def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
     root = Path(__file__).resolve().parents[1]
     index = (root / "static" / "index.html").read_text(encoding="utf-8")
     application = (root / "static" / "app-v4.js").read_text(encoding="utf-8")
-    popup = (root / "browser-extension" / "popup-v4.html").read_text(
-        encoding="utf-8"
-    )
+    popup = (root / "browser-extension" / "popup.html").read_text(encoding="utf-8")
     manifest = json.loads(
         (root / "browser-extension" / "manifest.json").read_text(
             encoding="utf-8"
@@ -184,8 +182,9 @@ def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
     ):
         assert required in combined
     assert "onclick=" not in popup
-    assert manifest["background"]["service_worker"] == "background-v4.js"
-    assert manifest["action"]["default_popup"] == "popup-v4.html"
+    assert manifest["background"]["service_worker"] == "background.js"
+    assert manifest["action"]["default_popup"] == "popup.html"
+    assert manifest["content_scripts"][0]["js"] == ["content.js", "content-safety.js"]
 
     node = shutil.which("node")
     if not node:
@@ -193,11 +192,13 @@ def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
     classic_scripts = [
         "static/app-v4.js",
         "static/app-v4-hardening.js",
-        "browser-extension/background.js",
         "browser-extension/security-shim.js",
+        "browser-extension/notification-guard.js",
+        "browser-extension/content.js",
+        "browser-extension/content-safety.js",
         "browser-extension/popup.js",
         "browser-extension/popup-security.js",
-        "browser-extension/content.js",
+        "browser-extension/popup-native-handoff.js",
     ]
     for relative in classic_scripts:
         result = subprocess.run(
@@ -213,7 +214,7 @@ def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
             node,
             "--experimental-default-type=module",
             "--check",
-            "browser-extension/background-v4.js",
+            "browser-extension/background.js",
         ],
         cwd=root,
         capture_output=True,
