@@ -4,6 +4,7 @@ from core.v3.api import wave3_api
 from core.v3 import hardening as _wave3_hardening  # noqa: F401
 from core.v4 import install_v4
 from core.v5 import install_v5
+from core.v5.browser_api import wave5_browser_api
 
 # Browser capture is capped at 4 MiB. Keep enough JSON/base64 overhead for a
 # legitimate envelope while rejecting unbounded local API payloads.
@@ -12,6 +13,8 @@ if "lumi_wave3" not in app.blueprints:
     app.register_blueprint(wave3_api)
 install_v4(app)
 install_v5(app)
+if "lumi_wave5_browser" not in app.blueprints:
+    app.register_blueprint(wave5_browser_api)
 
 __all__ = ["app", "main"]
 
