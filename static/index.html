@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/static/app-v5.css">
 <link rel="stylesheet" href="/static/app-os-v5.css">
 <link rel="stylesheet" href="/static/ttg-app-shell-v1.css">
+<link rel="stylesheet" href="/static/ttg-app-shell-v2.css">
 </head>
 <body>
 <div class="brand-background" aria-hidden="true"></div>
@@ -34,14 +35,12 @@
       <button class="nav-item" data-view="unfinished"><span>◔</span>Unfinished <b id="nav-unfinished-count">0</b></button>
       <button class="nav-item" data-view="finished"><span>✓</span>Finished <b id="nav-finished-count">0</b></button>
       <div class="nav-label">Technician</div>
-      <button class="nav-item" data-view="firmware"><span>▦</span>Firmware</button>
+      <button class="nav-item" data-view="firmware"><span>▦</span>Mobile firmware</button>
+      <button class="nav-item" data-view="operating_systems"><span>◫</span>Operating systems</button>
       <div class="nav-label">Organise</div>
       <button class="nav-item" data-view="queues"><span>☷</span>Queues</button>
       <button class="nav-item" data-view="categories"><span>◇</span>Categories</button>
       <button class="nav-item" data-view="grabber"><span>⌁</span>LinkGrabber</button>
-      <div class="nav-label">System</div>
-      <button class="nav-item" data-view="settings"><span>⚙</span>Settings</button>
-      <button class="nav-item" data-view="diagnostics"><span>＋</span>Diagnostics</button>
     </nav>
 
     <button class="hunter-promo" id="hunter-promo" hidden type="button">
@@ -72,6 +71,7 @@
       <section class="view" id="view-unfinished"></section>
       <section class="view" id="view-finished"></section>
       <section class="view" id="view-firmware"></section>
+      <section class="view" id="view-operating_systems"></section>
       <section class="view" id="view-queues"></section>
       <section class="view" id="view-categories"></section>
       <section class="view" id="view-grabber"></section>
@@ -113,5 +113,6 @@
 <script src="/static/app-v5.js"></script>
 <script src="/static/app-os-v5.js"></script>
 <script src="/static/ttg-app-shell-v1.js"></script>
+<script src="/static/ttg-app-shell-v2.js"></script>
 </body>
 </html>
