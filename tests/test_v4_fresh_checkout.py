@@ -165,7 +165,7 @@ def test_fresh_source_server_runs_secure_product_workflow(tmp_path: Path) -> Non
 def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
     root = Path(__file__).resolve().parents[1]
     index = (root / "static" / "index.html").read_text(encoding="utf-8")
-    application = (root / "static" / "app-v4.js").read_text(encoding="utf-8")
+    application = (root / "static" / "app.js").read_text(encoding="utf-8")
     popup = (root / "browser-extension" / "popup.html").read_text(encoding="utf-8")
     manifest = json.loads(
         (root / "browser-extension" / "manifest.json").read_text(
@@ -190,8 +190,12 @@ def test_final_ui_and_extension_sources_are_valid_and_clean() -> None:
     if not node:
         pytest.skip("Node is not installed")
     classic_scripts = [
-        "static/app-v4.js",
-        "static/app-v4-hardening.js",
+        "static/app.js",
+        "static/app-hardening.js",
+        "static/technician-workspaces.js",
+        "static/operating-systems.js",
+        "static/ttg-shell.js",
+        "static/ttg-theme.js",
         "browser-extension/security-shim.js",
         "browser-extension/notification-guard.js",
         "browser-extension/content.js",
