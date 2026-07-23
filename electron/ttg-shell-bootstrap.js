@@ -1,41 +1,22 @@
 "use strict";
 
-const electron = require("electron");
-const { app, ipcMain } = electron;
-const NativeBrowserWindow = electron.BrowserWindow;
+const { app, BrowserWindow, ipcMain } = require("electron");
 
-// Apply the THETECHGUY shell to full application windows before main.js creates
-// them. Small widgets and confirmation popups already own their custom surfaces.
-class TTGBrowserWindow extends NativeBrowserWindow {
-  constructor(options = {}) {
-    const isMainSurface = Number(options.width || 0) >= 650 && !options.parent;
-    super(isMainSurface ? {
-      ...options,
-      frame: false,
-      titleBarStyle: "hidden",
-      autoHideMenuBar: true,
-      roundedCorners: true,
-      backgroundColor: options.backgroundColor || "#070a11",
-    } : options);
-  }
-}
-
-Object.setPrototypeOf(TTGBrowserWindow, NativeBrowserWindow);
-try {
-  Object.defineProperty(electron, "BrowserWindow", {
-    value: TTGBrowserWindow,
-    configurable: true,
-    writable: true,
-  });
-} catch (_) {
-  electron.BrowserWindow = TTGBrowserWindow;
-}
-
+// Window framing is configured directly in main.js. Do not monkey-patch
+// Electron's exported BrowserWindow property: modern Electron exposes it as a
+// read-only getter and assigning to it crashes the packaged main process.
 function ownerWindow(event) {
-  return NativeBrowserWindow.fromWebContents(event.sender);
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
-ipcMain.handle("ttg-window-control", (event, action) => {
+function registerHandle(channel, handler) {
+  try {
+    ipcMain.removeHandler(channel);
+  } catch (_) {}
+  ipcMain.handle(channel, handler);
+}
+
+registerHandle("ttg-window-control", (event, action) => {
   const window = ownerWindow(event);
   if (!window || window.isDestroyed()) return { ok: false, maximized: false };
   if (action === "minimize") window.minimize();
@@ -47,7 +28,7 @@ ipcMain.handle("ttg-window-control", (event, action) => {
   return { ok: true, maximized: window.isMaximized() };
 });
 
-ipcMain.handle("ttg-window-state", event => {
+registerHandle("ttg-window-state", event => {
   const window = ownerWindow(event);
   return {
     maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
@@ -55,13 +36,13 @@ ipcMain.handle("ttg-window-state", event => {
   };
 });
 
-ipcMain.handle("ttg-app-info", () => ({
+registerHandle("ttg-app-info", () => ({
   name: app.getName(),
   version: app.getVersion(),
   platform: process.platform,
   architecture: process.arch,
   publisher: "THETECHGUY DIGITAL SOLUTIONS",
-  website: "https://thetechguyds.com",
+  website: "https://thetechguyds.com/tools",
 }));
 
 app.on("browser-window-created", (_event, window) => {
