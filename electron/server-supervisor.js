@@ -1,10 +1,7 @@
 "use strict";
 
-/* Recover the local Lumi server when Windows login starts Electron before the
- * packaged Python process is ready, and reconnect windows that loaded fallback
- * content during a slow boot. */
 const { app, BrowserWindow } = require("electron");
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const http = require("http");
 const path = require("path");
 
@@ -37,7 +34,12 @@ function serverCommand() {
 
 function checkReady(timeout = 2500) {
   return new Promise(resolve => {
-    const request = http.get({ hostname: "127.0.0.1", port: 7000, path: "/api/downloads?limit=1", timeout }, response => {
+    const request = http.get({
+      hostname: "127.0.0.1",
+      port: 7000,
+      path: "/api/downloads?limit=1",
+      timeout,
+    }, response => {
       response.resume();
       resolve((response.statusCode || 500) < 500);
     });
@@ -47,20 +49,28 @@ function checkReady(timeout = 2500) {
 }
 
 function spawnServer() {
-  if (quitting || (ownedProcess && !ownedProcess.killed)) return;
+  if (quitting || (ownedProcess && !ownedProcess.killed)) return false;
   const now = Date.now();
-  if (now - lastRestartAt < 2500) return;
+  if (now - lastRestartAt < 2500) return false;
   lastRestartAt = now;
   restartAttempts += 1;
   const spec = serverCommand();
   try {
-    ownedProcess = spawn(spec.command, spec.args, { stdio: "ignore", env: spec.env, windowsHide: true });
+    ownedProcess = spawn(spec.command, spec.args, {
+      stdio: "ignore",
+      env: spec.env,
+      windowsHide: true,
+    });
     ownedProcess.once("error", () => { ownedProcess = null; });
     ownedProcess.once("exit", () => { ownedProcess = null; });
-  } catch (_) { ownedProcess = null; }
+    return true;
+  } catch (_) {
+    ownedProcess = null;
+    return false;
+  }
 }
 
-function reconnectFallbackWindows() {
+function reconnectWindows() {
   for (const window of BrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) continue;
     const bounds = window.getBounds();
@@ -78,37 +88,49 @@ async function tick() {
   if (ready) {
     consecutiveFailures = 0;
     restartAttempts = 0;
-    if (!wasReady) reconnectFallbackWindows();
+    if (!wasReady) reconnectWindows();
     wasReady = true;
-    return;
+    return true;
   }
 
   consecutiveFailures += 1;
   wasReady = false;
   for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send("lumi-server-state", { ready: false, failures: consecutiveFailures });
+    if (!window.isDestroyed()) {
+      window.webContents.send("lumi-server-state", {
+        ready: false,
+        failures: consecutiveFailures,
+      });
+    }
   }
   if (consecutiveFailures >= 3 && restartAttempts < 6) spawnServer();
   if (restartAttempts >= 6 && Date.now() - lastRestartAt > 60_000) restartAttempts = 0;
+  return false;
 }
 
-app.whenReady().then(() => {
-  setTimeout(() => {
-    void tick();
-    timer = setInterval(() => void tick(), 2500);
-  }, 2200);
-});
+function start() {
+  if (quitting) return;
+  spawnServer();
+  if (!timer) timer = setInterval(() => void tick(), 2500);
+  setTimeout(() => void tick(), 900);
+}
 
-app.on("before-quit", () => {
+function stop() {
   quitting = true;
-  if (timer) clearInterval(timer);
+  if (timer) {
+    clearInterval(timer);
+    timer = null;
+  }
   if (ownedProcess && !ownedProcess.killed) {
     try {
       if (process.platform === "win32") {
-        require("child_process").spawnSync("taskkill", ["/PID", String(ownedProcess.pid), "/F", "/T"]);
-      } else ownedProcess.kill("SIGTERM");
+        spawnSync("taskkill", ["/PID", String(ownedProcess.pid), "/F", "/T"]);
+      } else {
+        ownedProcess.kill("SIGTERM");
+      }
     } catch (_) {}
   }
-});
+  ownedProcess = null;
+}
 
-module.exports = { checkReady, tick };
+module.exports = { checkReady, start, stop, tick };

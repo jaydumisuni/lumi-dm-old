@@ -46,18 +46,48 @@ def find_executable(
     return None
 
 
+def _bundled_imageio_ffmpeg() -> str | None:
+    """Return imageio-ffmpeg's packaged binary without making it mandatory in source runs."""
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        candidate = Path(imageio_ffmpeg.get_ffmpeg_exe())
+        return str(candidate) if candidate.is_file() else None
+    except Exception:
+        return None
+
+
 def find_ffmpeg() -> str | None:
-    return find_executable(["ffmpeg"], environment_variable="LUMIDM_FFMPEG")
+    return (
+        find_executable(["ffmpeg"], environment_variable="LUMIDM_FFMPEG")
+        or _bundled_imageio_ffmpeg()
+    )
 
 
 def find_ffprobe() -> str | None:
     return find_executable(["ffprobe"], environment_variable="LUMIDM_FFPROBE")
 
 
+def _windows_7zip() -> str | None:
+    if sys.platform != "win32":
+        return None
+    for variable in ("ProgramFiles", "ProgramFiles(x86)"):
+        root = str(os.environ.get(variable) or "").strip()
+        if not root:
+            continue
+        candidate = Path(root) / "7-Zip" / "7z.exe"
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
 def find_7zip() -> str | None:
-    return find_executable(
-        ["7zz", "7z", "7za"],
-        environment_variable="LUMIDM_7ZIP",
+    return (
+        find_executable(
+            ["7zz", "7z", "7za"],
+            environment_variable="LUMIDM_7ZIP",
+        )
+        or _windows_7zip()
     )
 
 

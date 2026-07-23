@@ -38,7 +38,7 @@ global.chrome = {
   },
 };
 
-require(path.resolve(__dirname, "..", "browser-extension", "notification-guard-v6.js"));
+require(path.resolve(__dirname, "..", "browser-extension", "notification-guard.js"));
 
 async function main() {
   assert(cleared.includes("legacy-1") && cleared.includes("legacy-2"), "old extension notifications must be cleared when the fixed worker loads");

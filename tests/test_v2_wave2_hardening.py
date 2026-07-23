@@ -37,14 +37,15 @@ def test_public_request_view_survives_missing_vault_entry(tmp_path: Path) -> Non
 
 def test_browser_capture_is_bounded_and_keeps_oversized_posts_in_browser() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = (root / "browser-extension" / "background.js").read_text(
+    source = (root / "browser-extension" / "browser-bridge.js").read_text(
         encoding="utf-8"
     )
 
-    assert "MAX_CAPTURE_BODY_BYTES = 4 * 1024 * 1024" in source
+    assert "MAX_BODY=4*1024*1024" in source
     assert "POST body exceeds Lumi's 4 MB capture limit" in source
     assert "Browser kept download" in source
-    assert "if (envelope.capture_error)" in source
+    assert "env.capture_error" in source
+    assert "localServer()" in source
 
 
 def test_local_server_rejects_unbounded_request_envelopes(tmp_path: Path) -> None:

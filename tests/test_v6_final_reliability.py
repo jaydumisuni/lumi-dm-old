@@ -40,53 +40,68 @@ def test_invalid_windows_filename_characters_are_sanitized():
     ) == "AUX_manual_.pdf"
 
 
-def test_final_desktop_reliability_modules_are_packaged_and_loaded():
+def test_consolidated_desktop_runtime_is_packaged_without_legacy_bootstraps():
     package = (ROOT / "electron" / "package.json").read_text(encoding="utf-8")
-    bootstrap = (ROOT / "electron" / "bootstrap-v5-final.js").read_text(encoding="utf-8")
+    main = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
+    assert '"main": "main.js"' in package
     for filename in (
-        "server-supervisor-v6.js",
-        "notification-baseline-v6.js",
-        "connection-capacity-v6.js",
+        "native-session.js",
+        "server-supervisor.js",
+        "connection-capacity.js",
+        "widget.html",
+        "confirm.html",
     ):
         assert filename in package
-        assert filename.replace(".js", "") in bootstrap
+    for obsolete in (
+        "bootstrap-v5-final.js",
+        "bootstrap-v5.js",
+        "legacy-guards-v5.js",
+        "notification-baseline-v6.js",
+        "widget-v5.html",
+        "confirm-v5.html",
+        "Reminal Download Manager",
+    ):
+        assert obsolete not in package
+        assert obsolete not in main
 
 
 def test_widget_distinguishes_live_use_from_connection_capacity():
-    widget = (ROOT / "electron" / "widget-v5.html").read_text(encoding="utf-8")
+    widget = (ROOT / "electron" / "widget.html").read_text(encoding="utf-8")
     assert "Live ↓" in widget
     assert "Capacity ↓" in widget
-    assert "Upload capacity" not in widget  # compact widget uses the arrow form
+    assert "Upload capacity" not in widget
     assert "Open Lumi Manager" in widget
     assert "Resume in manager" in widget
 
 
 def test_boot_notifications_use_a_session_transition_baseline():
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
-    native = (ROOT / "electron" / "notification-baseline-v6.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
+    main = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
     assert "taskBaseline" in shell
     assert "ACTIVE_STATES.has(previous)" in shell
     assert "New work, warnings and updates from this session" in shell
-    assert "baselineNames" in native
-    assert 'title === "Download complete"' in native
+    assert "baselineReady" in main
+    assert 'status === "completed" && previous && ACTIVE_STATES.has(previous)' in main
 
 
 def test_startup_supervisor_reconnects_fallback_windows():
-    source = (ROOT / "electron" / "server-supervisor-v6.js").read_text(encoding="utf-8")
+    source = (ROOT / "electron" / "server-supervisor.js").read_text(encoding="utf-8")
     assert "consecutiveFailures >= 3" in source
     assert "restartAttempts < 6" in source
     assert 'url.startsWith("file:")' in source
     assert 'window.loadURL("http://127.0.0.1:7000")' in source
+    assert "function start()" in source
+    assert "function stop()" in source
 
 
 def test_about_points_to_the_official_tools_page_and_verified_releases():
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
     assert "https://thetechguyds.com/tools" in shell
     assert "verified GitHub Releases" in shell
 
 
 def test_connection_test_is_manual_bounded_and_blocks_active_downloads():
-    source = (ROOT / "electron" / "connection-capacity-v6.js").read_text(encoding="utf-8")
+    source = (ROOT / "electron" / "connection-capacity.js").read_text(encoding="utf-8")
     assert "Pause active downloads before testing connection capacity" in source
     assert "15_000_000" in source
     assert "5_000_000" in source

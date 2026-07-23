@@ -133,31 +133,36 @@ def test_background_and_branding_contract_are_packaged() -> None:
     assert background.name == "backgroud .PNG"
     assert manifest["fit"] == "contain"
     assert manifest["builder_contract"]["reject_distortion"] is True
-    assert package["main"] == "bootstrap-v5-final.js"
+    assert package["main"] == "main.js"
     packaged_files = set(package["build"]["files"])
     assert {
-        "bootstrap-v5-final.js",
-        "widget-v5.html",
-        "confirm-v5.html",
-        "preload-widget-v5.js",
-        "preload-confirm-v5.js",
+        "main.js",
+        "native-session.js",
+        "server-supervisor.js",
+        "connection-capacity.js",
+        "widget.html",
+        "confirm.html",
+        "preload-widget.js",
+        "preload-confirm.js",
         "update-manager.js",
     } <= packaged_files
+    assert not any("v5" in item or "v6" in item or "legacy" in item for item in packaged_files)
     assert any(item.get("to") == "Resouces" for item in package["build"]["extraResources"])
 
 
 def test_extension_uses_pause_stage_decide_and_browser_fallback() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = (root / "browser-extension" / "background-v5.js").read_text(encoding="utf-8")
-    loader = (root / "browser-extension" / "background-v4.js").read_text(encoding="utf-8")
+    source = (root / "browser-extension" / "browser-bridge.js").read_text(encoding="utf-8")
+    loader = (root / "browser-extension" / "background.js").read_text(encoding="utf-8")
     manifest = json.loads((root / "browser-extension" / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["background"]["service_worker"] == "background-v4.js"
-    assert 'import "./background-v5.js"' in loader
+    assert manifest["background"]["service_worker"] == "background.js"
+    assert 'import "./browser-bridge.js"' in loader
+    assert 'import "./notification-guard.js"' in loader
     assert "/api/v5/browser/capture" in source
     assert "chrome.downloads.pause" in source
     assert "resumeDownload" in source
-    assert "decision===\"browser\"" in source
+    assert 'decision==="browser"' in source
     assert "Lumi became unavailable" in source
     assert "/api/downloads/start" not in source
 

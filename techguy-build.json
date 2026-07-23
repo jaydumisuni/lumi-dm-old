@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "company": "THETECHGUY DIGITAL SOLUTIONS",
+  "domain": "thetechguyds.com",
+  "website": "https://thetechguyds.com/tools",
+  "appName": "Lumi DM",
+  "appVersion": "1.0.0",
+  "projectType": "electron",
+  "entryFile": "electron/main.js",
+  "logo": "static/favicon-96.png",
+  "icon": "assets/windows/Lumi-DM.ico",
+  "description": "Fast multi-source download manager with browser capture, media, torrents, firmware, operating-system images and technician workflows.",
+  "repository": "jaydumisuni/lumi-dm",
+  "output": {
+    "dist": "dist/electron",
+    "installer": "installer_output"
+  },
+  "targets": [
+    "windows-exe",
+    "windows-installer"
+  ],
+  "installer": {
+    "template": "thetechguy-neon",
+    "windowSize": "standard",
+    "logoSize": "medium",
+    "runAsAdmin": true,
+    "installBase": "C:\\Program Files\\THETECHGUY DIGITAL SOLUTIONS",
+    "visitWebsiteChecked": true,
+    "runAfterInstallChecked": true,
+    "desktopShortcutChecked": true,
+    "startMenuShortcutChecked": true,
+    "checkDependenciesOnStart": true,
+    "activationPageInInstaller": false,
+    "requireCustomGraphicalInstaller": true,
+    "rejectVendorInstallerArtifacts": true,
+    "requireRegisteredUninstall": true
+  },
+  "electron": {
+    "packageRoot": "electron",
+    "preferredScript": "pack",
+    "packageMode": "unpacked-for-custom-installer",
+    "pythonSidecars": [
+      {
+        "id": "lumi-server",
+        "enabled": true,
+        "entry": "server.py",
+        "name": "LUMIDM-server",
+        "requirements": "requirements.txt",
+        "output": "dist/server",
+        "extraRequirements": [
+          "libtorrent==2.0.13",
+          "imageio-ffmpeg>=0.5,<1"
+        ],
+        "hiddenImports": [
+          "libtorrent"
+        ],
+        "collectAll": [
+          "yt_dlp",
+          "cryptography",
+          "psutil",
+          "imageio_ffmpeg"
+        ],
+        "collectSubmodules": [
+          "core"
+        ]
+      }
+    ]
+  },
+  "dependencies": [
+    {
+      "id": "sevenzip",
+      "name": "7-Zip archive engine",
+      "kind": "sevenzip",
+      "required": false,
+      "installMode": "manual-if-missing",
+      "note": "Optional enhancement for RAR, 7z and multipart archive extraction. Core downloads remain fully functional without it."
+    }
+  ],
+  "releaseControls": {
+    "updateCheck": true,
+    "loginRequired": false,
+    "subscriptionRequired": false,
+    "onlineRequired": false
+  },
+  "githubRelease": {
+    "repository": "jaydumisuni/lumi-dm",
+    "tag": "v1.0.0",
+    "title": "Lumi DM 1.0.0",
+    "notes": "",
+    "targetCommitish": "main",
+    "prerelease": false,
+    "replaceSameNameAssets": true,
+    "generateSha256Sidecars": true,
+    "tokenStoredInProject": false,
+    "tokenEnvironmentVariables": [
+      "GITHUB_TOKEN",
+      "GH_TOKEN"
+    ]
+  },
+  "aiRules": {
+    "doNotAddBuildEnvironmentsToProject": true,
+    "projectUsesSharedBuilder": true,
+    "builderRepository": "jaydumisuni/thetechguy-software-builder"
+  }
+}

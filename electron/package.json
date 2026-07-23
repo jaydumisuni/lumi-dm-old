@@ -2,14 +2,15 @@
   "name": "lumi-dm",
   "version": "1.0.0",
   "description": "Lumi Download Manager",
-  "main": "bootstrap-v5-final.js",
+  "main": "main.js",
   "scripts": {
     "prepare:branding": "python ../scripts/normalize_branding.py",
     "prepare:icons": "python prepare-icons.py",
     "prestart": "npm run prepare:branding && npm run prepare:icons",
     "start": "electron .",
     "prebuild": "npm run prepare:branding && npm run prepare:icons",
-    "build": "electron-builder"
+    "build": "electron-builder --dir",
+    "pack": "npm run prepare:branding && npm run prepare:icons && electron-builder --dir"
   },
   "build": {
     "appId": "com.lumi.dm",
@@ -19,26 +20,17 @@
       "output": "../dist/electron"
     },
     "files": [
-      "bootstrap-v5-final.js",
-      "native-session-v5.js",
-      "ttg-shell-bootstrap.js",
-      "legacy-guards-v5.js",
-      "server-supervisor-v6.js",
-      "notification-baseline-v6.js",
-      "connection-capacity-v6.js",
-      "bootstrap-v5.js",
+      "main.js",
+      "native-session.js",
+      "server-supervisor.js",
+      "connection-capacity.js",
       "desktop-command-poller.js",
       "update-manager.js",
-      "main.js",
       "preload-main.js",
       "preload-widget.js",
-      "preload-widget-v5.js",
       "preload-confirm.js",
-      "preload-confirm-v5.js",
       "widget.html",
-      "widget-v5.html",
       "confirm.html",
-      "confirm-v5.html",
       "node_modules/**"
     ],
     "extraResources": [
@@ -68,30 +60,13 @@
       }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "../assets/windows/Lumi-DM.ico"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "include": "installer.nsh",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Lumi DM",
-      "installerIcon": "../assets/windows/Lumi-DM.ico",
-      "uninstallerIcon": "../assets/windows/Lumi-DM.ico"
-    },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
       "icon": "../assets/macos/Lumi-DM.icns",
       "category": "public.app-category.utilities"
     },
-    "dmg": {
-      "title": "Lumi DM",
-      "icon": "../assets/macos/Lumi-DM.icns"
-    },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "icon": "../assets/linux/Lumi-DM-512.png",
       "category": "Network"
     }

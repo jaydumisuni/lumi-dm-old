@@ -75,6 +75,7 @@ def test_ttg_shell_and_builder_release_contract_are_packaged() -> None:
     shell = json.loads((root / "assets" / "ttg-app-shell-standard.json").read_text(encoding="utf-8"))
     release = json.loads((root / "assets" / "builder-github-release-contract.json").read_text(encoding="utf-8"))
     package = json.loads((root / "electron" / "package.json").read_text(encoding="utf-8"))
+    main = (root / "electron" / "main.js").read_text(encoding="utf-8")
     index = (root / "static" / "index.html").read_text(encoding="utf-8")
 
     assert shell["window"]["native_frame"] is False
@@ -85,12 +86,17 @@ def test_ttg_shell_and_builder_release_contract_are_packaged() -> None:
     assert shell["settings_gear"]["single_settings_entry"] is True
     assert release["security"]["never_store_token_in_project"] is True
     assert release["release"]["generate_sha256_sidecars"] is True
-    assert "ttg-shell-bootstrap.js" in package["build"]["files"]
+    assert package["main"] == "main.js"
+    assert "main.js" in package["build"]["files"]
+    assert "frame: false" in main
+    assert 'title: "Lumi DM"' in main
     for asset in (
-        "/static/ttg-app-shell-v1.css",
-        "/static/ttg-app-shell-v1.js",
-        "/static/app-os-v5.css",
-        "/static/app-os-v5.js",
+        "/static/ttg-shell.css",
+        "/static/ttg-shell.js",
+        "/static/ttg-theme.css",
+        "/static/ttg-theme.js",
+        "/static/operating-systems.css",
+        "/static/operating-systems.js",
     ):
         assert asset in index
 

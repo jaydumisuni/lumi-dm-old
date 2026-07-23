@@ -1,6 +1,5 @@
 "use strict";
 
-/* Manual, bounded connection-capacity test for the permanent Lumi widget. */
 const { app, BrowserWindow, ipcMain } = require("electron");
 const fs = require("fs");
 const path = require("path");
@@ -11,7 +10,11 @@ const DOWNLOAD_ENDPOINT = "https://speed.cloudflare.com/__down";
 const UPLOAD_ENDPOINT = "https://speed.cloudflare.com/__up";
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 let runningPromise = null;
-let currentStatus = { state: "idle", result: null, message: "Connection capacity has not been tested yet." };
+let currentStatus = {
+  state: "idle",
+  result: null,
+  message: "Connection capacity has not been tested yet.",
+};
 
 function resultPath() {
   return path.join(app.getPath("userData"), "LUMIDM-connection-capacity.json");
@@ -20,8 +23,7 @@ function resultPath() {
 function loadResult() {
   try {
     const result = JSON.parse(fs.readFileSync(resultPath(), "utf8"));
-    if (!result || typeof result !== "object") return null;
-    return result;
+    return result && typeof result === "object" ? result : null;
   } catch (_) { return null; }
 }
 
@@ -42,13 +44,18 @@ function broadcast() {
 
 function requestJson(route) {
   return new Promise((resolve, reject) => {
-    const request = http.get({ hostname: "127.0.0.1", port: 7000, path: route, timeout: 5000 }, response => {
+    const request = http.get({
+      hostname: "127.0.0.1",
+      port: 7000,
+      path: route,
+      timeout: 5000,
+    }, response => {
       let raw = "";
       response.setEncoding("utf8");
-      response.on("data", chunk => raw += chunk);
+      response.on("data", chunk => { raw += chunk; });
       response.on("end", () => {
         try { resolve(raw ? JSON.parse(raw) : {}); }
-        catch { reject(new Error("Lumi returned invalid connection-test state")); }
+        catch (_) { reject(new Error("Lumi returned invalid connection-test state")); }
       });
     });
     request.on("timeout", () => request.destroy(new Error("Lumi server timed out")));
@@ -62,8 +69,7 @@ async function assertIdle() {
     const active = (response.downloads || []).filter(task => ["running", "resolving", "pausing"].includes(task.status));
     if (active.length) throw new Error("Pause active downloads before testing connection capacity.");
   } catch (error) {
-    if (/Pause active/.test(error.message)) throw error;
-    // The benchmark can still run when the local API is recovering.
+    if (/Pause active/.test(String(error.message || error))) throw error;
   }
 }
 
@@ -86,10 +92,16 @@ function timedRequest(url, { method = "GET", body = null, expectedBytes = 0, tim
       response.on("data", chunk => { received += chunk.length; });
       response.on("end", () => {
         const elapsed = Number(process.hrtime.bigint() - started) / 1e9;
-        if ((response.statusCode || 500) >= 400) return reject(new Error(`Capacity endpoint returned ${response.statusCode}`));
+        if ((response.statusCode || 500) >= 400) {
+          reject(new Error(`Capacity endpoint returned ${response.statusCode}`));
+          return;
+        }
         const bytes = method === "POST" ? Number(body?.length || 0) : received;
-        if (expectedBytes && bytes < expectedBytes * 0.8) return reject(new Error("Capacity sample ended before enough data arrived"));
-        resolve({ seconds: Math.max(0.001, elapsed), bytes, status: response.statusCode || 0 });
+        if (expectedBytes && bytes < expectedBytes * 0.8) {
+          reject(new Error("Capacity sample ended before enough data arrived"));
+          return;
+        }
+        resolve({ seconds: Math.max(0.001, elapsed), bytes });
       });
     });
     request.on("timeout", () => request.destroy(new Error("Capacity sample timed out")));
@@ -118,7 +130,10 @@ async function latencySamples(count = 5) {
 async function downloadSamples() {
   const values = [];
   for (const bytes of [1_000_000, 5_000_000, 15_000_000]) {
-    const sample = await timedRequest(`${DOWNLOAD_ENDPOINT}?bytes=${bytes}&cache=${Date.now()}`, { expectedBytes: bytes, timeout: 30000 });
+    const sample = await timedRequest(`${DOWNLOAD_ENDPOINT}?bytes=${bytes}&cache=${Date.now()}`, {
+      expectedBytes: bytes,
+      timeout: 30000,
+    });
     values.push(sample.bytes * 8 / sample.seconds / 1_000_000);
   }
   return median(values.slice(-2));
@@ -128,7 +143,11 @@ async function uploadSamples() {
   const values = [];
   for (const bytes of [500_000, 2_000_000, 5_000_000]) {
     const body = Buffer.alloc(bytes, 0x4c);
-    const sample = await timedRequest(`${UPLOAD_ENDPOINT}?cache=${Date.now()}`, { method: "POST", body, timeout: 30000 });
+    const sample = await timedRequest(`${UPLOAD_ENDPOINT}?cache=${Date.now()}`, {
+      method: "POST",
+      body,
+      timeout: 30000,
+    });
     values.push(sample.bytes * 8 / sample.seconds / 1_000_000);
   }
   return median(values.slice(-2));
@@ -138,11 +157,19 @@ async function runCapacityTest() {
   if (runningPromise) return runningPromise;
   runningPromise = (async () => {
     await assertIdle();
-    currentStatus = { state: "running", result: currentStatus.result || loadResult(), message: "Testing download capacity…" };
+    currentStatus = {
+      state: "running",
+      result: currentStatus.result || loadResult(),
+      message: "Testing download capacity…",
+    };
     broadcast();
     const latencyMs = await latencySamples();
     const downloadMbps = await downloadSamples();
-    currentStatus = { state: "running", result: currentStatus.result, message: "Testing upload capacity…" };
+    currentStatus = {
+      state: "running",
+      result: currentStatus.result,
+      message: "Testing upload capacity…",
+    };
     broadcast();
     const uploadMbps = await uploadSamples();
     const result = {
@@ -153,11 +180,19 @@ async function runCapacityTest() {
       tested_at: new Date().toISOString(),
     };
     saveResult(result);
-    currentStatus = { state: "complete", result, message: "Connection capacity test completed." };
+    currentStatus = {
+      state: "complete",
+      result,
+      message: "Connection capacity test completed.",
+    };
     broadcast();
     return currentStatus;
   })().catch(error => {
-    currentStatus = { state: "error", result: loadResult(), message: String(error.message || error) };
+    currentStatus = {
+      state: "error",
+      result: loadResult(),
+      message: String(error.message || error),
+    };
     broadcast();
     return currentStatus;
   }).finally(() => { runningPromise = null; });

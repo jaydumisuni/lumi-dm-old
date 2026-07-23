@@ -22,7 +22,7 @@ def test_sidebar_separates_mobile_firmware_and_operating_systems() -> None:
 
 
 def test_operating_system_workspace_is_not_a_firmware_dropdown() -> None:
-    source = (ROOT / "static" / "app-os-v5.js").read_text(encoding="utf-8")
+    source = (ROOT / "static" / "operating-systems.js").read_text(encoding="utf-8")
 
     assert "viewMeta.operating_systems" in source
     assert 'document.getElementById("view-operating_systems")' in source
@@ -34,9 +34,9 @@ def test_operating_system_workspace_is_not_a_firmware_dropdown() -> None:
 
 
 def test_ttg_shell_v2_owns_window_controls_and_gear_surfaces() -> None:
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
-    enhancements = (ROOT / "static" / "ttg-app-shell-v2.js").read_text(encoding="utf-8")
-    bootstrap = (ROOT / "electron" / "ttg-shell-bootstrap.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
+    enhancements = (ROOT / "static" / "ttg-theme.js").read_text(encoding="utf-8")
+    main = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
 
     for expected in (
         'id="ttg-bell"',
@@ -55,8 +55,9 @@ def test_ttg_shell_v2_owns_window_controls_and_gear_surfaces() -> None:
     assert 'data-ttg-theme="system"' in enhancements
     assert 'data-ttg-theme="dark"' in enhancements
     assert 'data-ttg-theme="light"' in enhancements
-    assert "frame: false" in bootstrap
-    assert 'titleBarStyle: "hidden"' in bootstrap
+    assert "frame: false" in main
+    assert 'title: "Lumi DM"' in main
+    assert "autoHideMenuBar: true" in main
 
 
 def test_locked_builder_shell_contract_is_v2() -> None:
@@ -86,7 +87,7 @@ def test_locked_builder_shell_contract_is_v2() -> None:
 
 def test_advanced_diagnostics_remains_available_only_as_hidden_workspace() -> None:
     html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
     docs = (ROOT / "docs" / "TTG_APP_SHELL_STANDARD.md").read_text(
         encoding="utf-8"
     )

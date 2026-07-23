@@ -2,189 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lumi DM</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --bg: #111317; --surface: #1a1d22; --border: rgba(255,255,255,0.08);
-  --text: #e8eaed; --muted: #8a8f9a; --accent: #4f9ef8; --green: #5ed19d;
-  --red: #f87171; --yellow: #fbbf24; --font: "Inter", system-ui, sans-serif;
-}
-html, body { background: var(--bg); color: var(--text); font-family: var(--font);
-  font-size: 13px; width: 360px; min-height: 200px; }
-.header { display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 14px 10px; border-bottom: 1px solid var(--border); }
-.brand { font-weight: 700; font-size: 14px; display:flex; align-items:center; gap:8px }
-.popup-logo { width:18px; height:18px; border-radius:4px; object-fit:contain; }
-.open-btn { font-size: 11px; color: var(--accent); background: none; border: none;
-  cursor: pointer; padding: 2px 0; }
-.open-btn:hover { text-decoration: underline; }
-
-.url-row { padding: 10px 14px; display: flex; gap: 6px; }
-.url-input { flex: 1; background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border); border-radius: 6px; color: var(--text);
-  font-size: 12px; padding: 5px 9px; }
-.url-input:focus { outline: none; border-color: rgba(79,158,248,0.4); }
-.go-btn { background: var(--accent); color: #fff; border: none; border-radius: 6px;
-  padding: 5px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
-  white-space: nowrap; }
-.go-btn:hover { opacity: 0.85; }
-
-.type-row { display: flex; gap: 4px; padding: 0 14px 10px; }
-.type-btn { background: rgba(255,255,255,0.05); border: 1px solid var(--border);
-  color: var(--muted); border-radius: 6px; padding: 3px 10px;
-  font-size: 11px; cursor: pointer; transition: background 100ms, color 100ms; }
-.type-btn.is-active { background: rgba(79,158,248,0.15); color: var(--accent);
-  border-color: rgba(79,158,248,0.3); }
-.type-btn:hover { background: rgba(255,255,255,0.08); color: var(--text); }
-
-.status-msg { padding: 0 14px 8px; font-size: 11px; color: var(--muted); min-height: 16px; }
-
-.dl-section { border-top: 1px solid var(--border); }
-.dl-header { display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 14px 6px; }
-.dl-title { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
-.clear-link { font-size: 10px; color: var(--muted); background: none; border: none;
-  cursor: pointer; padding: 0; }
-.clear-link:hover { color: var(--text); }
-
-.dl-list { max-height: 260px; overflow-y: auto; padding: 0 10px 8px; }
-.dl-item { display: flex; align-items: center; gap: 6px; padding: 6px 4px;
-  border-bottom: 1px solid var(--border); }
-.dl-item:last-child { border-bottom: none; }
-.dl-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.dl-dot.running   { background: var(--accent); }
-.dl-dot.completed { background: var(--green); }
-.dl-dot.failed,
-.dl-dot.cancelled { background: var(--red); }
-.dl-dot.paused    { background: var(--yellow); }
-.dl-dot.queued    { background: rgba(255,255,255,0.2); }
-.dl-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.dl-pct  { font-size: 10px; color: var(--muted); flex-shrink: 0; }
-
-.empty-msg { padding: 12px 4px; font-size: 12px; color: var(--muted); text-align: center; }
-
-.settings-row { display: flex; align-items: center; gap: 6px;
-  padding: 8px 14px; border-top: 1px solid var(--border); }
-.settings-row label { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.server-input { flex: 1; background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border); border-radius: 5px; color: var(--text);
-  font-size: 11px; padding: 4px 8px; }
-.server-input:focus { outline: none; border-color: rgba(79,158,248,0.3); }
-.save-btn { background: rgba(255,255,255,0.06); border: 1px solid var(--border);
-  color: var(--muted); border-radius: 5px; padding: 4px 8px; font-size: 11px;
-  cursor: pointer; transition: background 100ms; }
-.save-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
-
-.tabs-row { display: flex; align-items: center; gap: 8px;
-  padding: 8px 14px; border-top: 1px solid var(--border); }
-.tabs-btn { flex-shrink: 0; background: rgba(79,158,248,0.1); border: 1px solid rgba(79,158,248,0.25);
-  color: var(--accent); border-radius: 6px; padding: 5px 10px; font-size: 11px;
-  font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 100ms; }
-.tabs-btn:hover { background: rgba(79,158,248,0.2); }
-.tabs-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.tabs-info { font-size: 10px; color: var(--muted); flex: 1; }
-.intercept-row { display: flex; align-items: center; justify-content: space-between;
-  padding: 8px 14px; border-top: 1px solid var(--border); }
-.intercept-row label { font-size: 12px; color: var(--text); cursor: pointer; }
-.intercept-row .hint { font-size: 10px; color: var(--muted); }
-.toggle { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
-.toggle input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; inset: 0; background: rgba(255,255,255,0.1);
-  border-radius: 18px; transition: background 150ms; cursor: pointer; }
-.slider:before { content: ""; position: absolute; width: 12px; height: 12px;
-  left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform 150ms; }
-.toggle input:checked + .slider { background: var(--accent); }
-.toggle input:checked + .slider:before { transform: translateX(16px); }
-
-/* Live speed bar */
-.speed-bar {
-  display: flex; align-items: center; gap: 7px;
-  padding: 7px 14px; border-top: 1px solid var(--border);
-  font-size: 12px; font-weight: 600; color: var(--accent);
-}
-.speed-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: rgba(255,255,255,0.15); flex-shrink: 0;
-  transition: background 300ms;
-}
-.speed-dot.active { background: var(--green); }
-.speed-sep { color: var(--muted); font-weight: 400; }
-.speed-sub { font-size: 10px; color: var(--muted); font-weight: 400; flex: 1; text-align: right; }
-
-/* Advanced toggle */
-.adv-toggle {
-  font-size: 10px; color: var(--muted); padding: 6px 14px;
-  cursor: pointer; border-top: 1px solid var(--border);
-  transition: color 100ms; user-select: none;
-}
-.adv-toggle:hover { color: var(--text); }
-
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+*{box-sizing:border-box}html,body{margin:0;width:380px;min-height:260px;background:#0d1015;color:#eef2f7;font:13px Inter,system-ui,sans-serif}button,input{font:inherit}.header,.row,.pair-head,.dl-header,.speed-bar,.intercept-row,.tabs-row{display:flex;align-items:center}.header{justify-content:space-between;padding:13px 15px;border-bottom:1px solid #252b35}.brand{display:flex;gap:9px;align-items:center;font-weight:750}.logo{width:22px;height:22px;object-fit:contain}.link-btn,.clear-link{border:0;background:none;color:#66a8ff;cursor:pointer}.url-row{display:flex;gap:7px;padding:12px 15px 7px}.url-input,.server-input,.pair-input{min-width:0;flex:1;border:1px solid #2a313d;background:#161b23;color:#eef2f7;border-radius:8px;padding:8px 10px;outline:none}.url-input:focus,.server-input:focus,.pair-input:focus{border-color:#4f9ef8}.primary,.type-btn,.tabs-btn,.save-btn{border:1px solid transparent;border-radius:8px;padding:7px 11px;cursor:pointer}.primary{background:#4f9ef8;color:white;font-weight:700}.type-row{display:flex;gap:6px;padding:0 15px 10px}.type-btn,.save-btn{background:#171d26;border-color:#2a313d;color:#9ba6b5}.type-btn.is-active{color:#72b3ff;border-color:#315f93;background:#17283d}.status-msg,.pair-message,.tabs-info{font-size:11px;color:#98a3b3}.status-msg{padding:0 15px 8px;min-height:18px}.pair-panel{margin:0 12px 10px;padding:11px;border:1px solid #2a313d;border-radius:10px;background:#121720}.pair-head{justify-content:space-between;margin-bottom:8px}.pair-title{font-weight:700}.pair-badge{font-size:10px;padding:3px 7px;border-radius:99px}.pair-badge.on{color:#78d9ae;background:#153326}.pair-badge.off{color:#ffce6a;background:#3b2d11}.pair-badge.warn{color:#ff9b9b;background:#3a1818}.pair-form{display:flex;gap:7px}.pair-input{text-transform:uppercase;letter-spacing:.08em}.pair-message{min-height:15px;margin-top:6px}.danger-link{border:0;background:none;color:#f58a8a;font-size:11px;cursor:pointer;padding:0}.dl-section{border-top:1px solid #252b35}.dl-header{justify-content:space-between;padding:9px 15px 6px}.dl-title{font-size:11px;color:#98a3b3;text-transform:uppercase;font-weight:700}.dl-list{max-height:230px;overflow:auto;padding:0 10px 8px}.dl-item{display:flex;gap:7px;align-items:center;padding:7px 5px;border-bottom:1px solid #202631}.dl-dot{width:7px;height:7px;border-radius:50%;background:#596273}.dl-dot.running{background:#4f9ef8}.dl-dot.completed{background:#5ed19d}.dl-dot.failed,.dl-dot.cancelled{background:#f87171}.dl-dot.paused,.dl-dot.browser_pending{background:#fbbf24}.dl-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.dl-pct{font-size:10px;color:#98a3b3}.empty-msg{padding:16px;text-align:center;color:#98a3b3}.tabs-row,.intercept-row,.speed-bar,.settings-row{padding:9px 15px;border-top:1px solid #252b35;gap:8px}.tabs-btn{background:#14253a;border-color:#2b5a8c;color:#72b3ff;font-size:11px}.tabs-info{flex:1}.intercept-row{justify-content:space-between}.hint{font-size:10px;color:#818c9b}.toggle{position:relative;width:38px;height:21px}.toggle input{display:none}.slider{position:absolute;inset:0;border-radius:20px;background:#2b3340;cursor:pointer}.slider:before{content:"";position:absolute;width:15px;height:15px;left:3px;top:3px;border-radius:50%;background:white;transition:.15s}.toggle input:checked+.slider{background:#4f9ef8}.toggle input:checked+.slider:before{transform:translateX(17px)}.speed-bar{color:#72b3ff;font-weight:700}.speed-dot{width:7px;height:7px;border-radius:50%;background:#36404d}.speed-dot.active{background:#5ed19d}.speed-sub{margin-left:auto;color:#818c9b;font-size:10px;font-weight:400}.adv-toggle{padding:8px 15px;border-top:1px solid #252b35;color:#98a3b3;font-size:11px;cursor:pointer}.settings-row{display:flex}.server-input{padding:6px 8px;font-size:11px}.save-btn{padding:6px 9px;font-size:11px}.sep{color:#46505f}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#333c49;border-radius:5px}
 </style>
 </head>
 <body>
-
-<div class="header">
-  <div class="brand"><img src="icons/icon48.png" class="popup-logo" alt="logo">⬇ Lumi DM</div>
-  <button class="open-btn" id="open-ui">Open full UI →</button>
-</div>
-
-<div class="url-row">
-  <input class="url-input" id="url-input" type="text"
-    placeholder="Paste URL, magnet link, or video URL…">
-  <button class="go-btn" id="go-btn">Go</button>
-</div>
-
-<div class="type-row">
-  <button class="type-btn is-active" data-type="auto">Auto</button>
-  <button class="type-btn" data-type="video">Video</button>
-  <button class="type-btn" data-type="torrent">Torrent</button>
-</div>
-
+<div class="header"><div class="brand"><img src="icons/icon48.png" class="logo" alt="">Lumi DM</div><button class="link-btn" id="open-ui">Open desktop manager →</button></div>
+<div class="url-row"><input class="url-input" id="url-input" placeholder="Paste URL, magnet, or video link…"><button class="primary" id="go-btn">Go</button></div>
+<div class="type-row"><button class="type-btn is-active" data-type="auto">Auto</button><button class="type-btn" data-type="video">Video</button><button class="type-btn" data-type="torrent">Torrent</button></div>
 <div class="status-msg" id="status-msg"></div>
-
-<div class="dl-section">
-  <div class="dl-header">
-    <span class="dl-title">Recent downloads</span>
-    <button class="clear-link" id="clear-btn">Clear done</button>
-  </div>
-  <div class="dl-list" id="dl-list">
-    <div class="empty-msg" id="empty-msg">Connecting to server…</div>
-  </div>
-</div>
-
-<div class="tabs-row">
-  <button class="tabs-btn" id="all-tabs-btn">⚡ From all open tabs</button>
-  <div id="tabs-status" class="tabs-info"></div>
-</div>
-<div class="intercept-row">
-  <div>
-    <div style="font-size:12px;color:var(--text);font-weight:600">Intercept all downloads</div>
-    <div class="hint">Redirect browser downloads to Lumi DM</div>
-  </div>
-  <label class="toggle">
-    <input type="checkbox" id="intercept-toggle" checked>
-    <span class="slider"></span>
-  </label>
-</div>
-<!-- Live speed bar -->
-<div class="speed-bar" id="speed-bar">
-  <span class="speed-dot" id="speed-dot"></span>
-  <span id="inet-label" title="Live internet speed">↓ 0 Mbps</span>
-  <span class="speed-sep">·</span>
-  <span id="speed-label" title="App download speed">⬇ 0 B/s</span>
-  <span class="speed-sub" id="speed-sub">No active downloads</span>
-</div>
-
-<!-- Server (collapsed by default) -->
-<div class="adv-toggle" onclick="toggleAdv()">⚙ Server settings <span id="adv-arrow">▸</span></div>
-<div class="settings-row" id="server-row" style="display:none">
-  <input class="server-input" id="server-input" type="text" placeholder="http://localhost:7000">
-  <button class="save-btn" id="save-server">Save</button>
-</div>
-
+<section class="pair-panel">
+  <div class="pair-head"><span class="pair-title">Secure connection</span><span class="pair-badge off" id="pair-badge">Checking…</span></div>
+  <div class="pair-form" id="pair-form"><input class="pair-input" id="pair-code" maxlength="9" placeholder="ABCD-EFGH"><button class="primary" id="pair-submit">Pair</button></div>
+  <button class="danger-link" id="pair-disconnect" hidden>Forget this pairing</button>
+  <div class="pair-message" id="pair-message">Generate a browser-extension code in Lumi Settings → Security.</div>
+</section>
+<section class="dl-section"><div class="dl-header"><span class="dl-title">Recent downloads</span><button class="clear-link" id="clear-btn">Clear done</button></div><div class="dl-list" id="dl-list"><div class="empty-msg" id="empty-msg">Connecting…</div></div></section>
+<div class="tabs-row"><button class="tabs-btn" id="all-tabs-btn">⚡ From all open tabs</button><div id="tabs-status" class="tabs-info"></div></div>
+<div class="intercept-row"><div><div style="font-weight:700">Intercept downloads</div><div class="hint">Pause matching browser downloads while Lumi asks where to save</div></div><label class="toggle"><input type="checkbox" id="intercept-toggle" checked><span class="slider"></span></label></div>
+<div class="speed-bar" id="speed-bar"><span class="speed-dot" id="speed-dot"></span><span id="inet-label">↓ -- Mbps</span><span class="sep">·</span><span id="speed-label">⬇ 0 B/s</span><span class="speed-sub" id="speed-sub">No active downloads</span></div>
+<div class="adv-toggle" id="adv-toggle">⚙ Server settings <span id="adv-arrow">▸</span></div>
+<div class="settings-row" id="server-row" style="display:none"><input class="server-input" id="server-input" placeholder="http://localhost:7000"><button class="save-btn" id="save-server">Save</button></div>
+<script src="popup-security.js"></script>
 <script src="popup.js"></script>
+<script src="popup-native-handoff.js"></script>
 </body>
 </html>

@@ -20,11 +20,11 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background-v4.js",
+    "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_popup": "popup-v4.html",
+    "default_popup": "popup.html",
     "default_title": "Lumi DM",
     "default_icon": {
       "16": "icons/icon16.png",
@@ -51,7 +51,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js", "content-v5.js"],
+      "js": ["content.js", "content-safety.js"],
       "run_at": "document_idle"
     }
   ],
