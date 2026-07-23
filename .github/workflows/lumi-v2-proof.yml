@@ -43,16 +43,16 @@ jobs:
           python -m json.tool electron/package.json >/dev/null
           python -m json.tool techguy-build.json >/dev/null
 
-      - name: Validate browser extension source
+      - name: Validate clean browser extension source
         run: |
-          node --check browser-extension/background-v4.js
-          node --check browser-extension/background-v5.js
-          node --check browser-extension/notification-guard-v6.js
+          node --check browser-extension/background.js
+          node --check browser-extension/browser-bridge.js
+          node --check browser-extension/notification-guard.js
           node --check browser-extension/content.js
-          node --check browser-extension/content-v5.js
+          node --check browser-extension/content-safety.js
           node --check browser-extension/popup.js
           node --check browser-extension/popup-security.js
-          node --check browser-extension/popup-v5.js
+          node --check browser-extension/popup-native-handoff.js
           node --check browser-extension/security-shim.js
           node tests/notification_guard_proof.js
 
