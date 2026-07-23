@@ -70,20 +70,27 @@ def test_notification_flood_guard_is_part_of_installed_extension():
     manifest = json.loads(
         (ROOT / "browser-extension" / "manifest.json").read_text(encoding="utf-8")
     )
-    background = (
-        ROOT / "browser-extension" / manifest["background"]["service_worker"]
-    ).read_text(encoding="utf-8")
-    assert 'import "./notification-guard-v6.js"' in background
+    assert manifest["background"]["service_worker"] == "background.js"
+    assert manifest["action"]["default_popup"] == "popup.html"
+    assert manifest["content_scripts"][0]["js"] == ["content.js", "content-safety.js"]
 
-    guard = (
-        ROOT / "browser-extension" / "notification-guard-v6.js"
-    ).read_text(encoding="utf-8")
+    background = (ROOT / "browser-extension" / "background.js").read_text(encoding="utf-8")
+    assert 'import "./notification-guard.js"' in background
+    assert 'import "./browser-bridge.js"' in background
+
+    guard = (ROOT / "browser-extension" / "notification-guard.js").read_text(encoding="utf-8")
     assert "OFFLINE_NOTICE_COOLDOWN_MS" in guard
     assert "DUPLICATE_WINDOW_MS" in guard
     assert "isQuietAutomaticFailure" in guard
     assert "if (isQuietAutomaticFailure(options)) return CONNECTIVITY_ID" in guard
     assert "chrome.notifications.clear" in guard
     assert 'const CONNECTIVITY_ID = "LUMIDM-connectivity-state"' in guard
+
+    for obsolete in (
+        "background-v4.js", "background-v5.js", "notification-guard-v6.js",
+        "content-v5.js", "popup-v4.html", "popup-v5.js",
+    ):
+        assert not (ROOT / "browser-extension" / obsolete).exists()
 
 
 def test_release_candidate_has_no_builder_environment_inside_project():
