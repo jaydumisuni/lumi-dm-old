@@ -17,10 +17,15 @@ def test_builder_profile_matches_lumi_release_contract():
     assert config["appVersion"] == "1.0.0"
     assert config["projectType"] == "electron"
     assert config["repository"] == "jaydumisuni/lumi-dm"
-    assert config["entryFile"] == "electron/bootstrap-v5-final.js"
+    assert config["entryFile"] == "electron/main.js"
+    assert config["electron"]["preferredScript"] == "pack"
+    assert config["electron"]["packageMode"] == "unpacked-for-custom-installer"
     assert config["installer"]["runAsAdmin"] is True
     assert config["installer"]["desktopShortcutChecked"] is True
     assert config["installer"]["startMenuShortcutChecked"] is True
+    assert config["installer"]["requireCustomGraphicalInstaller"] is True
+    assert config["installer"]["rejectVendorInstallerArtifacts"] is True
+    assert config["installer"]["requireRegisteredUninstall"] is True
     assert config["githubRelease"]["tag"] == "v1.0.0"
     assert config["githubRelease"]["generateSha256Sidecars"] is True
     assert config["githubRelease"]["tokenStoredInProject"] is False
