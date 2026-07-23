@@ -6,7 +6,7 @@
  * The Flask security boundary already exposes a loopback-only bootstrap that
  * returns an HttpOnly owner session. Electron's Node-side widget/setup requests do
  * not share Chromium's cookie jar, so this module captures that same session cookie
- * and injects it only into requests aimed at 127.0.0.1:7000.
+ * and injects it only into requests aimed at Lumi's loopback port.
  */
 const { app } = require("electron");
 const http = require("http");
@@ -16,14 +16,28 @@ let sessionCookie = "";
 let bootstrapping = null;
 let stopped = false;
 
+function toOptions(value) {
+  if (typeof value === "string" || value instanceof URL) {
+    const parsed = new URL(value);
+    return {
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port || 80,
+      path: `${parsed.pathname}${parsed.search}`,
+    };
+  }
+  return value && typeof value === "object" ? { ...value } : value;
+}
+
 function isLumiLocal(options) {
   if (!options || typeof options !== "object") return false;
-  const host = String(options.hostname || options.host || "").split(":", 1)[0];
+  const host = String(options.hostname || options.host || "").replace(/^\[|\]$/g, "").split(":", 1)[0];
   const port = Number(options.port || 80);
   return ["127.0.0.1", "localhost", "::1"].includes(host) && port === 7000;
 }
 
-http.request = function lumiAuthenticatedRequest(options, ...rest) {
+http.request = function lumiAuthenticatedRequest(input, ...rest) {
+  let options = toOptions(input);
   if (isLumiLocal(options)) {
     options = { ...options, headers: { ...(options.headers || {}) } };
     const route = String(options.path || "");
@@ -32,6 +46,12 @@ http.request = function lumiAuthenticatedRequest(options, ...rest) {
     }
   }
   return originalRequest(options, ...rest);
+};
+
+http.get = function lumiAuthenticatedGet(input, ...rest) {
+  const request = http.request(input, ...rest);
+  request.end();
+  return request;
 };
 
 function bootstrap() {
