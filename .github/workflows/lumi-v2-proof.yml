@@ -46,12 +46,14 @@ jobs:
         run: |
           node --check browser-extension/background-v4.js
           node --check browser-extension/background-v5.js
+          node --check browser-extension/notification-guard-v6.js
           node --check browser-extension/content.js
           node --check browser-extension/content-v5.js
           node --check browser-extension/popup.js
           node --check browser-extension/popup-security.js
           node --check browser-extension/popup-v5.js
           node --check browser-extension/security-shim.js
+          node tests/notification_guard_proof.js
 
       - name: Validate desktop and final UI source
         run: |
