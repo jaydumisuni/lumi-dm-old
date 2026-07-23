@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "brand": "Lumi Download Manager",
+  "rendering_rule": "Preserve the source aspect ratio. Never stretch, crop or force width and height independently.",
+  "fit": "contain",
+  "transparent_padding": true,
+  "high_dpi": true,
+  "surfaces": {
+    "tray_and_taskbar": {
+      "sizes": [16, 20, 24, 32, 40, 48, 64, 128, 256],
+      "format": "multi-resolution ICO on Windows",
+      "safe_padding_percent": 10
+    },
+    "corner_widget": {
+      "css_box": [38, 38],
+      "source_minimum": [96, 96],
+      "fit": "contain"
+    },
+    "download_setup_popup": {
+      "css_box": [42, 42],
+      "source_minimum": [128, 128],
+      "fit": "contain"
+    },
+    "main_sidebar": {
+      "css_box": [36, 36],
+      "source_minimum": [96, 96],
+      "fit": "contain"
+    },
+    "browser_extension": {
+      "native_sizes": [16, 48, 128],
+      "fit": "contain"
+    },
+    "splash": {
+      "fit": "contain",
+      "source_minimum": [256, 256]
+    },
+    "background": {
+      "fit": "cover",
+      "position": "center",
+      "opacity_range": [0.1, 0.18],
+      "overlay": "dark readability gradient",
+      "source": "Resouces/backgroud .PNG"
+    }
+  },
+  "builder_contract": {
+    "generate_surface_specific_assets": true,
+    "validate_aspect_ratio": true,
+    "reject_distortion": true,
+    "test_windows_scaling_percent": [100, 125, 150, 200]
+  }
+}
