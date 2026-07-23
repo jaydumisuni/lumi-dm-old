@@ -10,58 +10,45 @@ import pytest
 from core.v5 import os_catalog
 
 
-def test_os_catalogue_has_windows_macos_linux_and_labelled_providers() -> None:
-    value = os_catalog.catalogue()
-    assert value["families"] == ["Windows", "macOS", "Linux"]
-    providers = {item["id"]: item for item in value["providers"]}
-    assert providers["windows-fido"]["official"] is False
-    assert "GPLv3" in providers["windows-fido"]["attribution"]
-    assert providers["microsoft-downloads"]["official"] is True
-    assert providers["apple-support"]["official"] is True
-    assert providers["ubuntu"]["direct_files"] is True
+def test_os_catalogue_lists_three_computer_families() -> None:
+    catalogue = os_catalog.catalogue()
+    assert catalogue["families"] == ["Windows", "macOS", "Linux"]
+    assert "Windows 11" in catalogue["options"]["Windows"]["versions"]
+    assert "Full installer" in catalogue["options"]["macOS"]["editions"]
+    assert "Ubuntu" in catalogue["options"]["Linux"]["distributions"]
 
 
-def test_windows_search_is_explicit_resolver_plus_official_fallback() -> None:
-    results = os_catalog.search_os(
-        family="Windows",
-        version="Windows 11",
-        edition="Home/Pro",
+def test_linux_catalogue_returns_official_distribution_sources() -> None:
+    results = os_catalog.search(
+        family="Linux",
+        distribution="Ubuntu",
+        version="24.04 LTS",
+        edition="Desktop",
         architecture="x64",
-        language="English International",
+        channel="stable",
     )
-    assert len(results) == 2
-    resolver = next(item for item in results if item["provider"] == "windows-fido")
-    fallback = next(item for item in results if item["provider"] == "microsoft-downloads")
-    assert resolver["direct"] is False
-    assert resolver["metadata"]["resolver"] == "fido"
-    assert fallback["official"] is True
-    assert fallback["direct"] is False
-
-
-def test_ubuntu_results_keep_official_url_and_sha256(monkeypatch) -> None:
-    sample = '''
-latest:
-  name: "Resolute Raccoon"
-  full_version: "26.04"
-lts:
-  name: "Resolute Raccoon"
-  full_version: "26.04"
-checksums:
-  desktop:
-    "26.04": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa *ubuntu-26.04-desktop-amd64.iso"
-'''
-    monkeypatch.setattr(os_catalog._CACHE, "get", lambda _key, _ttl, loader: sample)
-    results = os_catalog._ubuntu_results("26.04", "Desktop", "amd64", "all")
     assert results
-    item = results[0]
-    assert item.official is True
-    assert item.url == "https://releases.ubuntu.com/26.04/ubuntu-26.04-desktop-amd64.iso"
-    assert item.sha256 == "a" * 64
+    assert all(item.official for item in results)
+    assert all(item.metadata["os_family"] == "Linux" for item in results)
+    assert all(item.source_url.startswith("https://") for item in results)
 
 
-def test_fido_resolution_refuses_non_windows_platform(monkeypatch) -> None:
-    monkeypatch.setattr(os_catalog.platform, "system", lambda: "Linux")
-    with pytest.raises(RuntimeError, match="only on Windows"):
+def test_macos_results_label_index_and_apple_hosting() -> None:
+    results = os_catalog.search(
+        family="macOS",
+        version="macOS 15 Sequoia",
+        edition="Full installer",
+        architecture="Universal",
+        channel="public",
+    )
+    assert results
+    assert any(item.provider == "mr-macintosh" for item in results)
+    assert all("Apple" in item.notes or "Apple" in item.source_name for item in results)
+
+
+def test_windows_fido_requires_explicit_resolver(monkeypatch) -> None:
+    monkeypatch.setattr(os_catalog, "_find_fido", lambda: None)
+    with pytest.raises(os_catalog.OSCatalogError):
         os_catalog.resolve_windows_iso(
             version="Windows 11",
             edition="Home/Pro",
@@ -75,6 +62,7 @@ def test_ttg_shell_and_builder_release_contract_are_packaged() -> None:
     shell = json.loads((root / "assets" / "ttg-app-shell-standard.json").read_text(encoding="utf-8"))
     release = json.loads((root / "assets" / "builder-github-release-contract.json").read_text(encoding="utf-8"))
     package = json.loads((root / "electron" / "package.json").read_text(encoding="utf-8"))
+    main = (root / "electron" / "main.js").read_text(encoding="utf-8")
     index = (root / "static" / "index.html").read_text(encoding="utf-8")
 
     assert shell["window"]["native_frame"] is False
@@ -85,7 +73,10 @@ def test_ttg_shell_and_builder_release_contract_are_packaged() -> None:
     assert shell["settings_gear"]["single_settings_entry"] is True
     assert release["security"]["never_store_token_in_project"] is True
     assert release["release"]["generate_sha256_sidecars"] is True
-    assert "ttg-shell-bootstrap.js" in package["build"]["files"]
+    assert package["main"] == "main.js"
+    assert "main.js" in package["build"]["files"]
+    assert "frame: false" in main
+    assert 'title: "Lumi DM"' in main
     for asset in (
         "/static/ttg-app-shell-v1.css",
         "/static/ttg-app-shell-v1.js",
