@@ -1,4 +1,4 @@
-name: Lumi V2 Proof
+name: Lumi Proof
 
 on:
   pull_request:
@@ -41,6 +41,7 @@ jobs:
           python -m json.tool assets/ttg-app-shell-standard.json >/dev/null
           python -m json.tool assets/builder-github-release-contract.json >/dev/null
           python -m json.tool electron/package.json >/dev/null
+          python -m json.tool techguy-build.json >/dev/null
 
       - name: Validate browser extension source
         run: |
@@ -55,21 +56,17 @@ jobs:
           node --check browser-extension/security-shim.js
           node tests/notification_guard_proof.js
 
-      - name: Validate desktop and final UI source
+      - name: Validate consolidated desktop and final UI source
         run: |
-          node --check electron/bootstrap-v5-final.js
-          node --check electron/native-session-v5.js
-          node --check electron/ttg-shell-bootstrap.js
-          node --check electron/legacy-guards-v5.js
-          node --check electron/server-supervisor-v6.js
-          node --check electron/notification-baseline-v6.js
-          node --check electron/connection-capacity-v6.js
-          node --check electron/bootstrap-v5.js
+          node --check electron/main.js
+          node --check electron/native-session.js
+          node --check electron/server-supervisor.js
+          node --check electron/connection-capacity.js
           node --check electron/desktop-command-poller.js
           node --check electron/update-manager.js
           node --check electron/preload-main.js
-          node --check electron/preload-widget-v5.js
-          node --check electron/preload-confirm-v5.js
+          node --check electron/preload-widget.js
+          node --check electron/preload-confirm.js
           node --check static/app-v5.js
           node --check static/app-os-v5.js
           node --check static/ttg-app-shell-v1.js
@@ -88,7 +85,7 @@ jobs:
           status=$?
           cat /tmp/lumi-pytest.log
           if [ "$status" -ne 0 ]; then
-            issue_title="Lumi V2 runtime proof failure PR #$PR_NUMBER"
+            issue_title="Lumi runtime proof failure PR #$PR_NUMBER"
             {
               echo "## $issue_title"
               echo
