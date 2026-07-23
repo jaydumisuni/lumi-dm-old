@@ -72,16 +72,5 @@
     // Settings and diagnostics are intentional hidden workspaces opened only from
     // the title-bar gear. They must never return to the everyday sidebar.
     document.querySelectorAll('[data-view="settings"],[data-view="diagnostics"]').forEach(button => button.remove());
-
-    const osButton = document.querySelector('[data-view="operating_systems"]');
-    if (osButton && !osButton.dataset.ttgBound) {
-      osButton.dataset.ttgBound = "1";
-      osButton.addEventListener("click", () => {
-        setTimeout(() => {
-          const view = document.getElementById("view-operating_systems");
-          if (view && !view.children.length) osButton.click();
-        }, 40);
-      });
-    }
   }
 })();
