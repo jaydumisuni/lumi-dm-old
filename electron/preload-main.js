@@ -3,7 +3,6 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('electronApp', {
   pickFolder: () => ipcRenderer.invoke('pick-folder'),
   isElectron: true,
-  afterStagedConfirm: () => ipcRenderer.send('staged-confirm-done'),
   getDesktopSettings: () => ipcRenderer.invoke('v5-desktop-settings-get'),
   saveDesktopSettings: (value) => ipcRenderer.invoke('v5-desktop-settings-save', value),
   showWidget: () => ipcRenderer.send('v5-widget-show'),
