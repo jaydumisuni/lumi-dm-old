@@ -30,11 +30,15 @@
     "desktopShortcutChecked": true,
     "startMenuShortcutChecked": true,
     "checkDependenciesOnStart": true,
-    "activationPageInInstaller": false
+    "activationPageInInstaller": false,
+    "requireCustomGraphicalInstaller": true,
+    "rejectVendorInstallerArtifacts": true,
+    "requireRegisteredUninstall": true
   },
   "electron": {
     "packageRoot": "electron",
-    "preferredScript": "build",
+    "preferredScript": "pack",
+    "packageMode": "unpacked-for-custom-installer",
     "pythonSidecars": [
       {
         "id": "lumi-server",
