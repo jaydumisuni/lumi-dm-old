@@ -23,6 +23,9 @@
       "native-session-v5.js",
       "ttg-shell-bootstrap.js",
       "legacy-guards-v5.js",
+      "server-supervisor-v6.js",
+      "notification-baseline-v6.js",
+      "connection-capacity-v6.js",
       "bootstrap-v5.js",
       "desktop-command-poller.js",
       "update-manager.js",
@@ -42,16 +45,12 @@
       {
         "from": "../static",
         "to": "static",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       },
       {
         "from": "../Resouces",
         "to": "Resouces",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       },
       {
         "from": "../assets/windows/Lumi-DM.ico",
@@ -60,27 +59,16 @@
       {
         "from": "../browser-extension",
         "to": "browser-extension",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       },
       {
         "from": "../dist/server",
         "to": "server",
-        "filter": [
-          "**/*"
-        ]
+        "filter": ["**/*"]
       }
     ],
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
       "icon": "../assets/windows/Lumi-DM.ico"
     },
     "nsis": {
@@ -94,15 +82,7 @@
       "uninstallerIcon": "../assets/windows/Lumi-DM.ico"
     },
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
       "icon": "../assets/macos/Lumi-DM.icns",
       "category": "public.app-category.utilities"
     },
@@ -111,14 +91,7 @@
       "icon": "../assets/macos/Lumi-DM.icns"
     },
     "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "icon": "../assets/linux/Lumi-DM-512.png",
       "category": "Network"
     }
