@@ -20,7 +20,7 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background-v5.js",
+    "service_worker": "background-v4.js",
     "type": "module"
   },
   "action": {
