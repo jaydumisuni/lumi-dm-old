@@ -1,6 +1,7 @@
 /* THETECHGUY App Shell Standard v2 */
 .ttg-desktop{border-color:rgba(111,68,255,.58);box-shadow:0 18px 70px rgba(0,0,0,.42)}
 .ttg-desktop .ttg-titlebar{height:43px;background:linear-gradient(180deg,rgba(10,13,22,.99),rgba(6,9,15,.99));border-bottom-color:rgba(91,65,190,.3)}
+.ttg-desktop .app-shell{height:calc(100vh - 43px)}.ttg-desktop .boot-screen{top:43px}.ttg-desktop .ttg-shell-modal-backdrop{inset:43px 0 0}.ttg-window-maximized{border-radius:0;border-left:0;border-right:0;border-bottom:0}
 .ttg-titlebar-brand{padding-left:13px}.ttg-titlebar-brand img{width:23px;height:23px}.ttg-titlebar-brand strong{font-weight:760;letter-spacing:.01em}.ttg-titlebar-brand small{letter-spacing:.04em;text-transform:uppercase}
 .ttg-titlebar-actions{padding-right:2px}.ttg-titlebar-btn{width:40px}.ttg-titlebar-btn:hover,.ttg-titlebar-btn.active{background:rgba(105,73,215,.18);color:#fff}.ttg-titlebar-btn.close:hover{background:#c42d3c}.ttg-titlebar-divider{margin:0 4px}
 .ttg-shell-menu{top:48px;right:83px;width:264px;padding:8px;border-color:rgba(117,88,228,.34);background:rgba(8,12,20,.992)}.ttg-notification-menu{right:124px;width:326px}
