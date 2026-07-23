@@ -22,6 +22,7 @@
       "bootstrap-v5-final.js",
       "native-session-v5.js",
       "ttg-shell-bootstrap.js",
+      "legacy-guards-v5.js",
       "bootstrap-v5.js",
       "desktop-command-poller.js",
       "update-manager.js",
