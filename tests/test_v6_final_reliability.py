@@ -75,7 +75,7 @@ def test_widget_distinguishes_live_use_from_connection_capacity():
 
 
 def test_boot_notifications_use_a_session_transition_baseline():
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
     main = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
     assert "taskBaseline" in shell
     assert "ACTIVE_STATES.has(previous)" in shell
@@ -95,7 +95,7 @@ def test_startup_supervisor_reconnects_fallback_windows():
 
 
 def test_about_points_to_the_official_tools_page_and_verified_releases():
-    shell = (ROOT / "static" / "ttg-app-shell-v1.js").read_text(encoding="utf-8")
+    shell = (ROOT / "static" / "ttg-shell.js").read_text(encoding="utf-8")
     assert "https://thetechguyds.com/tools" in shell
     assert "verified GitHub Releases" in shell
 
