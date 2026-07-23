@@ -37,8 +37,9 @@ def test_firmware_catalogue_is_deterministic_and_source_labelled() -> None:
     assert "Apple" in firmware.brands()
     assert "Samsung" in firmware.brands()
     assert "Google Pixel" in firmware.brands()
-    assert all(item["source_group"] for item in firmware._search_sources("Samsung", "SM-S918B", "", ""))
-    assert all(item["direct"] is False for item in firmware._search_sources("Samsung", "SM-S918B", "", ""))
+    source_results = firmware._search_sources("Samsung", "SM-S918B", "", "")
+    assert all(item.source_group for item in source_results)
+    assert all(item.direct is False for item in source_results)
 
 
 def test_apple_adapter_keeps_signing_and_source_evidence(monkeypatch) -> None:
@@ -148,9 +149,11 @@ def test_background_and_branding_contract_are_packaged() -> None:
 def test_extension_uses_pause_stage_decide_and_browser_fallback() -> None:
     root = Path(__file__).resolve().parents[1]
     source = (root / "browser-extension" / "background-v5.js").read_text(encoding="utf-8")
+    loader = (root / "browser-extension" / "background-v4.js").read_text(encoding="utf-8")
     manifest = json.loads((root / "browser-extension" / "manifest.json").read_text(encoding="utf-8"))
 
-    assert manifest["background"]["service_worker"] == "background-v5.js"
+    assert manifest["background"]["service_worker"] == "background-v4.js"
+    assert 'import "./background-v5.js"' in loader
     assert "/api/v5/browser/capture" in source
     assert "chrome.downloads.pause" in source
     assert "resumeDownload" in source
