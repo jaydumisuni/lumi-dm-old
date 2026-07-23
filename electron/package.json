@@ -2,7 +2,7 @@
   "name": "lumi-dm",
   "version": "1.0.0",
   "description": "Lumi Download Manager",
-  "main": "main.js",
+  "main": "bootstrap-v5-final.js",
   "scripts": {
     "prepare:branding": "python ../scripts/normalize_branding.py",
     "prepare:icons": "python prepare-icons.py",
@@ -14,21 +14,38 @@
   "build": {
     "appId": "com.lumi.dm",
     "productName": "Lumi DM",
-    "copyright": "lumi",
+    "copyright": "THETECHGUY DIGITAL SOLUTIONS",
     "directories": {
       "output": "../dist/electron"
     },
     "files": [
+      "bootstrap-v5-final.js",
+      "bootstrap-v5.js",
+      "desktop-command-poller.js",
+      "update-manager.js",
       "main.js",
       "preload-main.js",
-      "widget.html",
       "preload-widget.js",
+      "preload-widget-v5.js",
+      "preload-confirm.js",
+      "preload-confirm-v5.js",
+      "widget.html",
+      "widget-v5.html",
+      "confirm.html",
+      "confirm-v5.html",
       "node_modules/**"
     ],
     "extraResources": [
       {
         "from": "../static",
         "to": "static",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../Resouces",
+        "to": "Resouces",
         "filter": [
           "**/*"
         ]
