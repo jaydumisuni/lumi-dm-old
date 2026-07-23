@@ -9,7 +9,8 @@
     "prestart": "npm run prepare:branding && npm run prepare:icons",
     "start": "electron .",
     "prebuild": "npm run prepare:branding && npm run prepare:icons",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "pack": "npm run prepare:branding && npm run prepare:icons && electron-builder --dir"
   },
   "build": {
     "appId": "com.lumi.dm",
