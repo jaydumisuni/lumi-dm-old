@@ -1,667 +1,577 @@
+"use strict";
+
 const {
-  app, BrowserWindow, shell, dialog, Menu, Tray, nativeImage,
-  screen, ipcMain, Notification,
-} = require('electron');
-const path = require('path');
-const { spawn } = require('child_process');
-const http = require('http');
-const fs = require('fs');
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  Notification,
+  dialog,
+  ipcMain,
+  nativeImage,
+  screen,
+  shell,
+} = require("electron");
+const fs = require("fs");
+const http = require("http");
+const path = require("path");
 
-// Must be set before app 'ready' — prevents "electron.app.*" in notifications
-app.setName('Lumi DM');
-if (process.platform === 'win32') {
-  app.setAppUserModelId('com.lumi.dm');
-}
+app.setName("Lumi DM");
+if (process.platform === "win32") app.setAppUserModelId("com.lumi.dm");
 
-let mainWindow   = null;
+if (app.isPackaged) process.env.LUMIDM_BRANDING_DIR = path.join(process.resourcesPath, "Resouces");
+else process.env.LUMIDM_BRANDING_DIR = path.resolve(__dirname, "..", "Resouces");
+
+require("./native-session");
+const serverSupervisor = require("./server-supervisor");
+require("./connection-capacity");
+require("./desktop-command-poller");
+const { UpdateManager } = require("./update-manager");
+
+const API_HOST = "127.0.0.1";
+const API_PORT = 7000;
+const API_ORIGIN = `http://${API_HOST}:${API_PORT}`;
+const LOGIN_ARGS = ["--hidden", "--login-startup"];
+const LEGACY_LOGIN_ARGS = ["--hidden"];
+const ACTIVE_STATES = new Set(["queued", "resolving", "running", "pausing", "post_processing"]);
+
+let mainWindow = null;
 let widgetWindow = null;
-let tray         = null;
-let serverProc   = null;
-let isQuitting   = false;
+let setupWindow = null;
+let tray = null;
+let updater = null;
+let isQuitting = false;
+let widgetExpanded = false;
+let setupResolved = false;
+let pollingTimer = null;
+let setupTimer = null;
+let baselineReady = false;
+let lastSpeed = 0;
+let lastActive = 0;
+const taskBaseline = new Map();
+const setupData = new Map();
+const shownHandoffs = new Set();
 
-const WINDOWS_LOGIN_ARGS = ['--hidden', '--login-startup'];
-const WINDOWS_LEGACY_LOGIN_ARGS = ['--hidden'];
-
-// Speed / status cache updated by pollServer()
-const _prevStatus   = {};
-let _lastSpeed      = 0;
-let _lastActive     = 0;
-
-function getWindowsLoginItemOptions(args = WINDOWS_LOGIN_ARGS) {
-  return { path: process.execPath, args };
-}
-
-function getWindowsLoginItemState(args = WINDOWS_LOGIN_ARGS) {
-  return app.getLoginItemSettings(getWindowsLoginItemOptions(args));
-}
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
 
 function isHiddenLaunch(argv = process.argv) {
-  return argv.includes('--hidden') || argv.includes('--login-startup');
+  return argv.includes("--hidden") || argv.includes("--login-startup");
 }
 
 function isStartupLaunch(argv = process.argv) {
-  if (process.platform === 'win32') return isHiddenLaunch(argv);
+  if (process.platform === "win32") return isHiddenLaunch(argv);
   const settings = app.getLoginItemSettings();
   return settings.wasOpenedAtLogin || settings.wasOpenedAsHidden || isHiddenLaunch(argv);
 }
 
-function isLoginItemEnabled(settings) {
-  return settings.openAtLogin && settings.enabled !== false;
-}
-
-const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
-} else {
-  app.on('second-instance', (_event, argv) => {
-    if (isHiddenLaunch(argv)) return;
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-      hideWidget();
-      return;
-    }
-    createWindow(false);
-  });
-}
-
-// ── Python server ─────────────────────────────────────────────────────────────
-
-function _killPort7000() {
-  // Kill any leftover server from a previous Electron session that didn't exit cleanly
-  if (process.platform === 'win32') {
-    try {
-      const out = require('child_process').execSync(
-        'netstat -ano | findstr ":7000 " | findstr "LISTENING"',
-        { encoding: 'utf8', timeout: 3000 }
-      );
-      for (const line of out.trim().split(/\r?\n/)) {
-        const pid = line.trim().split(/\s+/).pop();
-        if (/^\d+$/.test(pid) && pid !== '0') {
-          require('child_process').spawnSync('taskkill', ['/PID', pid, '/F', '/T']);
-        }
-      }
-    } catch (_) {}
-  } else {
-    try {
-      require('child_process').execSync('fuser -k 7000/tcp', { timeout: 3000 });
-    } catch (_) {}
-  }
-}
-
-function startPythonServer() {
-  _killPort7000();
-  let cmd, args;
-  const env = Object.assign({}, process.env);
-
-  if (app.isPackaged) {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    cmd = path.join(process.resourcesPath, 'server', `LUMIDM-server${ext}`);
-    args = ['--host', '127.0.0.1', '--port', '7000'];
-    env.LUMIDM_STATIC_DIR = path.join(process.resourcesPath, 'static');
-    env.LUMIDM_DATA_DIR   = app.getPath('userData');
-  } else {
-    const script = path.resolve(__dirname, '..', 'server.py');
-    cmd = process.env.LUMIDM_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
-    args = [script, '--host', '127.0.0.1', '--port', '7000'];
-  }
-
-  try {
-    serverProc = spawn(cmd, args, { stdio: 'ignore', env });
-    serverProc.on('error', (err) => console.error('Server failed to start:', err));
-    serverProc.on('exit',  (code) => console.log('Server exited', code));
-  } catch (e) {
-    console.error('Failed to spawn server:', e);
-  }
-}
-
-function stopPythonServer() {
-  if (!serverProc || serverProc.killed) return;
-  try {
-    if (process.platform === 'win32') {
-      // taskkill /F /T kills the entire process tree on Windows (SIGTERM is unreliable)
-      require('child_process').spawnSync('taskkill', ['/PID', String(serverProc.pid), '/F', '/T']);
-    } else {
-      serverProc.kill('SIGTERM');
-    }
-  } catch (_) {}
-}
-
-function waitForServer(url, cb, timeout = 25000) {
-  const start = Date.now();
-  const tryOnce = () => {
-    http.get(url, () => cb(true)).on('error', () => {
-      if (Date.now() - start > timeout) cb(false);
-      else setTimeout(tryOnce, 250);
-    });
-  };
-  tryOnce();
-}
-
-// ── Prefs ─────────────────────────────────────────────────────────────────────
-
-const EXT_DIR    = app.isPackaged
-  ? path.join(process.resourcesPath, 'browser-extension')
-  : path.resolve(__dirname, '..', 'browser-extension');
-const PREFS_FILE = path.join(app.getPath('userData'), 'LUMIDM-prefs.json');
-
-function loadPrefs() {
-  try { return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { return {}; }
-}
-function savePrefs(data) {
-  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(data), 'utf8'); } catch {}
-}
-
-// ── Startup at login ──────────────────────────────────────────────────────────
+function getLoginOptions(args = LOGIN_ARGS) { return { path: process.execPath, args }; }
 
 function getStartupEnabled() {
-  if (process.platform === 'linux') return loadPrefs().startAtLogin === true;
-  if (process.platform === 'win32') {
-    const current = getWindowsLoginItemState();
-    if (current.openAtLogin) return isLoginItemEnabled(current);
-    return isLoginItemEnabled(getWindowsLoginItemState(WINDOWS_LEGACY_LOGIN_ARGS));
+  if (process.platform === "linux") return readGeneralPrefs().startAtLogin === true;
+  if (process.platform === "win32") {
+    const current = app.getLoginItemSettings(getLoginOptions());
+    if (current.openAtLogin) return current.enabled !== false;
+    const legacy = app.getLoginItemSettings(getLoginOptions(LEGACY_LOGIN_ARGS));
+    return legacy.openAtLogin && legacy.enabled !== false;
   }
   return app.getLoginItemSettings().openAtLogin;
 }
 
-function setStartupEnabled(enable) {
-  if (process.platform === 'linux') {
-    const p = loadPrefs(); p.startAtLogin = enable; savePrefs(p);
-  } else if (process.platform === 'win32') {
-    app.setLoginItemSettings({
-      ...getWindowsLoginItemOptions(WINDOWS_LEGACY_LOGIN_ARGS),
-      openAtLogin: false,
-    });
-    app.setLoginItemSettings({
-      ...getWindowsLoginItemOptions(),
-      openAtLogin: enable,
-    });
-  } else {
-    app.setLoginItemSettings({ openAtLogin: enable, openAsHidden: true, args: ['--hidden'] });
-  }
+function setStartupEnabled(enabled) {
+  if (process.platform === "linux") writeGeneralPrefs({ ...readGeneralPrefs(), startAtLogin: enabled });
+  else if (process.platform === "win32") {
+    app.setLoginItemSettings({ ...getLoginOptions(LEGACY_LOGIN_ARGS), openAtLogin: false });
+    app.setLoginItemSettings({ ...getLoginOptions(), openAtLogin: enabled });
+  } else app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true, args: ["--hidden"] });
   rebuildTrayMenu();
-  buildMenu();
 }
 
-// ── Speed helpers ─────────────────────────────────────────────────────────────
-
-function fmtSpeed(bps) {
-  if (bps >= 1048576) return (bps / 1048576).toFixed(1) + ' MB/s';
-  if (bps >= 1024)    return (bps / 1024).toFixed(0)    + ' KB/s';
-  return bps.toFixed(0) + ' B/s';
-}
-
-// ── Server polling (completion notifications + tray tooltip + widget) ─────────
-
-function pollServer() {
-  const req = http.get('http://127.0.0.1:7000/api/downloads?limit=100', (res) => {
-    let raw = '';
-    res.on('data', d => raw += d);
-    res.on('end', () => {
-      try {
-        const { downloads = [] } = JSON.parse(raw);
-        _lastActive = downloads.filter(j => j.status === 'running').length;
-        _lastSpeed  = downloads.reduce((s, j) => s + (+j.speed_bytes_per_sec || 0), 0);
-
-        // Update tray tooltip with live speed
-        if (tray) {
-          tray.setToolTip(_lastActive > 0
-            ? `Lumi DM  ↓ ${fmtSpeed(_lastSpeed)}  (${_lastActive} active)`
-            : 'Lumi DM');
-        }
-
-        // Completion notifications + staged-download alert
-        let hasNewStaged = false;
-        downloads.forEach(j => {
-          if (j.status === 'completed' && _prevStatus[j.id] !== 'completed') {
-            notifyComplete(j);
-          }
-          if (j.status === 'staged' && _prevStatus[j.id] !== 'staged') {
-            hasNewStaged = true;
-          }
-          _prevStatus[j.id] = j.status;
-        });
-
-        // Bring main window forward when a staged download needs confirmation
-        if (hasNewStaged) showMainWindowForStaged();
-
-        // Taskbar progress bar
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          const running = downloads.filter(j => j.status === 'running');
-          if (running.length > 0) {
-            const avg = running.reduce((s, j) => s + (j.progress_percent || 0), 0) / running.length;
-            mainWindow.setProgressBar(avg / 100);
-          } else {
-            mainWindow.setProgressBar(-1);
-          }
-        }
-
-        // Remove stale IDs from cache
-        const cur = new Set(downloads.map(j => j.id));
-        Object.keys(_prevStatus).forEach(id => { if (!cur.has(id)) delete _prevStatus[id]; });
-      } catch {}
-    });
-  }).on('error', () => {});
-  req.setTimeout(5000, () => req.destroy());
-}
-
-function notifyComplete(job) {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({
-    title: 'Download complete',
-    body:  job.filename || 'File downloaded',
-    icon:  getIconPath(),
-    silent: false,
-  });
-  n.on('click', () => {
-    // Open file in Explorer/Finder
-    http.request(
-      { hostname: '127.0.0.1', port: 7000, path: `/api/downloads/${job.id}/open`, method: 'POST', headers: { 'Content-Length': 0 } },
-      () => {}
-    ).on('error', () => {}).end();
-    if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-    else createWindow();
-    hideWidget();
-  });
-  n.show();
-}
-
-// ── Mini corner widget ────────────────────────────────────────────────────────
-
-function createWidget() {
-  if (widgetWindow && !widgetWindow.isDestroyed()) { widgetWindow.show(); return; }
-  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
-  widgetWindow = new BrowserWindow({
-    width: 220, height: 60,
-    x: width - 232, y: height - 72,
-    frame: false, transparent: true, hasShadow: false,
-    alwaysOnTop: true, skipTaskbar: true, resizable: false,
-    webPreferences: {
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload-widget.js'),
-    },
-  });
-  widgetWindow.loadFile(path.join(__dirname, 'widget.html'));
-  widgetWindow.on('closed', () => { widgetWindow = null; });
-}
-
-function showWidget() { createWidget(); }
-
-function hideWidget() {
-  if (widgetWindow && !widgetWindow.isDestroyed()) {
-    widgetWindow.close();
+function iconPath() {
+  if (process.platform === "win32") {
+    return app.isPackaged
+      ? path.join(process.resourcesPath, "assets", "windows", "Lumi-DM.ico")
+      : path.resolve(__dirname, "..", "assets", "windows", "Lumi-DM.ico");
   }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "static", "favicon-256.png")
+    : path.resolve(__dirname, "..", "static", "favicon-256.png");
 }
 
-// ── IDM-style mini confirm popup ──────────────────────────────────────────────
-
-// Show main window when a staged download needs confirmation
-function showMainWindowForStaged() {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
-  if (!mainWindow.isVisible()) mainWindow.show();
-  mainWindow.focus();
+function generalPrefsPath() { return path.join(app.getPath("userData"), "LUMIDM-prefs.json"); }
+function desktopPrefsPath() { return path.join(app.getPath("userData"), "LUMIDM-desktop.json"); }
+function readJson(file, fallback) {
+  try { return { ...fallback, ...JSON.parse(fs.readFileSync(file, "utf8")) }; }
+  catch (_) { return { ...fallback }; }
 }
-
-// IPC: renderer signals it finished confirming/cancelling — hide back to widget
-ipcMain.on('staged-confirm-done', () => {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  mainWindow.hide();
-  showWidget();
-});
-
-// ── Clipboard monitor — offer to download copied URLs ─────────────────────────
-
-const { clipboard } = require('electron');
-const _DL_CLIP_RE   = /\.(zip|rar|7z|exe|msi|dmg|apk|pdf|iso|mp4|mkv|mp3|flac|torrent|tar\.gz|tar\.bz2)(\?.*)?$/i;
-let   _lastClip     = '';
-
-function checkClipboard() {
+function writeJson(file, value) {
   try {
-    const text = clipboard.readText().trim();
-    if (text === _lastClip || text.length < 10) return;
-    _lastClip = text;
-    const isMagnet = text.startsWith('magnet:');
-    const isUrl    = text.startsWith('http://') || text.startsWith('https://');
-    if ((isUrl && _DL_CLIP_RE.test(text)) || isMagnet) {
-      const fakeJob = {
-        id:          '__clipboard__',
-        url:         text,
-        filename:    isMagnet ? 'Magnet link' : text.split('/').pop().split('?')[0],
-        total_bytes: 0,
-        target_dir:  '',
-        status:      'staged',
-        _fromClipboard: true,
-      };
-      showMainWindowForStaged();
-    }
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const temporary = `${file}.tmp`;
+    fs.writeFileSync(temporary, JSON.stringify(value, null, 2), "utf8");
+    fs.renameSync(temporary, file);
   } catch (_) {}
 }
-setInterval(checkClipboard, 600);
+function readGeneralPrefs() { return readJson(generalPrefsPath(), {}); }
+function writeGeneralPrefs(value) { writeJson(generalPrefsPath(), value); }
+function defaultDesktopPrefs() {
+  return { corner: "bottom-right", displayId: "primary", margin: 12, scale: 1, visible: true, showUpload: false };
+}
+function readDesktopPrefs() { return readJson(desktopPrefsPath(), defaultDesktopPrefs()); }
+function writeDesktopPrefs(value) {
+  const next = { ...readDesktopPrefs(), ...(value || {}) };
+  writeJson(desktopPrefsPath(), next);
+  return next;
+}
 
-// IPC: renderer requests its job data keyed by window ID (safe with multiple concurrent popups)
+function displayFor(settings) {
+  if (String(settings.displayId) === "primary") return screen.getPrimaryDisplay();
+  return screen.getAllDisplays().find(display => String(display.id) === String(settings.displayId)) || screen.getPrimaryDisplay();
+}
+function displaysForUi() {
+  const primary = screen.getPrimaryDisplay();
+  return screen.getAllDisplays().map((display, index) => ({
+    id: String(display.id),
+    label: `${display.id === primary.id ? "Primary" : `Display ${index + 1}`} · ${display.workArea.width}×${display.workArea.height}`,
+  }));
+}
+function cornerBounds(width, height, settings = readDesktopPrefs()) {
+  const area = displayFor(settings).workArea;
+  const margin = Math.max(4, Math.min(80, Number(settings.margin || 12)));
+  const left = String(settings.corner).endsWith("left");
+  const top = String(settings.corner).startsWith("top");
+  return {
+    x: Math.round(left ? area.x + margin : area.x + area.width - width - margin),
+    y: Math.round(top ? area.y + margin : area.y + area.height - height - margin),
+    width,
+    height,
+  };
+}
 
-// IPC: native folder picker (main window and confirm popup both use this)
-ipcMain.handle('pick-folder', async (e) => {
-  const win    = BrowserWindow.fromWebContents(e.sender) || mainWindow || BrowserWindow.getFocusedWindow();
-  const result = await dialog.showOpenDialog(win, {
-    title:      'Choose download folder',
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  return result.canceled ? null : result.filePaths[0];
-});
-
-// Promisified http POST helper (avoids fetch() which may not exist in all Electron versions)
-function httpPost(path, bodyObj) {
+function requestJson(method, route, body = null, timeout = 8000) {
   return new Promise((resolve, reject) => {
-    const payload = JSON.stringify(bodyObj);
-    const req = http.request(
-      { hostname: '127.0.0.1', port: 7000, path, method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } },
-      (res) => {
-        let raw = '';
-        res.on('data', (c) => { raw += c; });
-        res.on('end', () => {
-          try { resolve(JSON.parse(raw)); } catch { resolve({}); }
-        });
-      }
-    );
-    req.on('error', reject);
-    req.end(payload);
+    const payload = body === null ? null : Buffer.from(JSON.stringify(body));
+    const request = http.request({
+      hostname: API_HOST,
+      port: API_PORT,
+      path: route,
+      method,
+      timeout,
+      headers: {
+        "X-Lumi-Client": "electron-desktop",
+        ...(payload ? { "Content-Type": "application/json", "Content-Length": payload.length } : {}),
+      },
+    }, response => {
+      let raw = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { raw += chunk; });
+      response.on("end", () => {
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; }
+        catch (_) { data = { error: raw.slice(0, 300) }; }
+        if ((response.statusCode || 500) >= 400) {
+          reject(new Error(data.error || `Lumi API ${response.statusCode}`));
+          return;
+        }
+        resolve(data);
+      });
+    });
+    request.on("timeout", () => request.destroy(new Error("Lumi server timed out")));
+    request.on("error", reject);
+    if (payload) request.write(payload);
+    request.end();
   });
 }
 
-// IPC: confirm a staged download from the mini popup
-ipcMain.handle('confirm-staged', async (_, jobId, filename, targetDir, remember) => {
+async function waitForServer(timeoutMs = 30000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await serverSupervisor.checkReady(1800)) return true;
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  return false;
+}
+
+function createMainWindow(startHidden = false) {
+  if (mainWindow && !mainWindow.isDestroyed()) return mainWindow;
+  mainWindow = new BrowserWindow({
+    width: 920,
+    height: 650,
+    minWidth: 720,
+    minHeight: 500,
+    center: true,
+    show: false,
+    frame: false,
+    title: "Lumi DM",
+    icon: iconPath(),
+    autoHideMenuBar: true,
+    backgroundColor: "#070a11",
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, "preload-main.js") },
+  });
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    void shell.openExternal(url);
+    return { action: "deny" };
+  });
+  mainWindow.on("close", event => {
+    if (isQuitting) return;
+    event.preventDefault();
+    mainWindow.hide();
+    showWidget();
+  });
+  mainWindow.on("closed", () => { mainWindow = null; });
+  mainWindow.on("maximize", broadcastWindowState);
+  mainWindow.on("unmaximize", broadcastWindowState);
+  mainWindow.on("focus", broadcastWindowState);
+  mainWindow.on("blur", broadcastWindowState);
+
+  const staticIndex = app.isPackaged
+    ? path.join(process.resourcesPath, "static", "index.html")
+    : path.resolve(__dirname, "..", "static", "index.html");
+  void (async () => {
+    const ready = await waitForServer();
+    if (mainWindow?.isDestroyed()) return;
+    if (ready) await mainWindow.loadURL(API_ORIGIN);
+    else await mainWindow.loadFile(staticIndex);
+    if (!startHidden) mainWindow.show();
+  })();
+  return mainWindow;
+}
+function showMainWindow() {
+  const window = createMainWindow(false);
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+}
+function broadcastWindowState() {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("ttg-window-state-changed", {
+    maximized: mainWindow.isMaximized(),
+    focused: mainWindow.isFocused(),
+  });
+}
+
+function applyWidgetBounds() {
+  if (!widgetWindow || widgetWindow.isDestroyed()) return;
+  const settings = readDesktopPrefs();
+  const scale = Math.max(0.75, Math.min(1.35, Number(settings.scale || 1)));
+  widgetWindow.setBounds(cornerBounds(
+    Math.round((widgetExpanded ? 360 : 240) * scale),
+    Math.round((widgetExpanded ? 320 : 66) * scale),
+    settings,
+  ), true);
+}
+function createWidget() {
+  const settings = readDesktopPrefs();
+  if (widgetWindow && !widgetWindow.isDestroyed()) return widgetWindow;
+  const scale = Math.max(0.75, Math.min(1.35, Number(settings.scale || 1)));
+  widgetWindow = new BrowserWindow({
+    ...cornerBounds(Math.round(240 * scale), Math.round(66 * scale), settings),
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    show: false,
+    alwaysOnTop: true,
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, "preload-widget.js") },
+  });
+  widgetWindow.setAlwaysOnTop(true, "floating");
+  widgetWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: false });
+  void widgetWindow.loadFile(path.join(__dirname, "widget.html"));
+  widgetWindow.on("closed", () => { widgetWindow = null; });
+  widgetWindow.once("ready-to-show", () => {
+    if (settings.visible !== false && !setupWindow) widgetWindow.showInactive();
+  });
+  return widgetWindow;
+}
+function showWidget() {
+  const settings = readDesktopPrefs();
+  if (settings.visible === false || setupWindow) return;
+  createWidget();
+  applyWidgetBounds();
+  widgetWindow.showInactive();
+}
+function hideWidget() {
+  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
+}
+async function widgetSnapshot() {
   try {
-    const data = await httpPost(`/api/downloads/${jobId}/confirm`, { filename, target_dir: targetDir });
-    if (remember && targetDir) {
-      httpPost('/api/settings/default-dir', { dir: targetDir }).catch(() => {});
-    }
-    return data;
-  } catch (e) { return { error: e.message }; }
-});
+    const [downloads, net] = await Promise.all([
+      requestJson("GET", "/api/downloads?limit=100"),
+      requestJson("GET", "/api/netstats").catch(() => ({})),
+    ]);
+    return { online: true, downloads: downloads.downloads || [], net, settings: readDesktopPrefs(), expanded: widgetExpanded };
+  } catch (error) {
+    return { online: false, error: String(error.message || error), downloads: [], net: {}, settings: readDesktopPrefs(), expanded: widgetExpanded };
+  }
+}
 
-// IPC: cancel/delete a staged download from the mini popup
-ipcMain.handle('cancel-staged', async (_, jobId) => {
-  if (jobId === '__clipboard__') return { ok: true };
-  try {
-    await httpPost(`/api/downloads/${jobId}/delete`, { delete_file: false });
-    return { ok: true };
-  } catch (e) { return { error: e.message }; }
-});
-
-// IPC: confirm popup self-close
-ipcMain.on('confirm-close', (e) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (win) win.close();
-});
-
-// IPC from widget: bring main window to front
-ipcMain.on('widget-show-main', () => {
-  if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-  else createWindow();
+async function setupOptions(task) {
+  const [settings, queues, categories] = await Promise.all([
+    requestJson("GET", "/api/settings").catch(() => ({})),
+    requestJson("GET", "/api/queues").catch(() => ({ queues: [] })),
+    requestJson("GET", "/api/categories").catch(() => ({ categories: [] })),
+  ]);
+  return { task, settings, queues: queues.queues || [], categories: categories.categories || [] };
+}
+async function showSetupPopup(task) {
+  if (setupWindow && !setupWindow.isDestroyed()) return;
+  const handoffId = String(task.metadata?.browser_handoff_id || "");
+  if (!handoffId || shownHandoffs.has(handoffId)) return;
+  shownHandoffs.add(handoffId);
+  setupResolved = false;
   hideWidget();
-});
-
-// ── System tray ───────────────────────────────────────────────────────────────
-
-function getIconPath() {
-  if (process.platform === 'win32') {
-    if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'assets', 'windows', 'Lumi-DM.ico');
+  const scale = Math.max(0.85, Math.min(1.2, Number(readDesktopPrefs().scale || 1)));
+  setupWindow = new BrowserWindow({
+    ...cornerBounds(Math.round(450 * scale), Math.round(485 * scale), readDesktopPrefs()),
+    frame: false,
+    transparent: true,
+    hasShadow: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: true,
+    show: false,
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, "preload-confirm.js") },
+  });
+  setupWindow.setAlwaysOnTop(true, "floating");
+  const webContentsId = setupWindow.webContents.id;
+  setupData.set(webContentsId, { handoffId, ...(await setupOptions(task)) });
+  void setupWindow.loadFile(path.join(__dirname, "confirm.html"));
+  setupWindow.once("ready-to-show", () => { setupWindow?.show(); setupWindow?.focus(); });
+  setupWindow.on("closed", () => {
+    const data = setupData.get(webContentsId);
+    setupData.delete(webContentsId);
+    setupWindow = null;
+    if (!setupResolved && data?.handoffId) {
+      void requestJson("POST", `/api/v5/browser/handoffs/${encodeURIComponent(data.handoffId)}/browser`, {}).catch(() => {});
     }
-    return path.join(__dirname, '..', 'assets', 'windows', 'Lumi-DM.ico');
-  }
+    showWidget();
+  });
+}
+async function scanPendingSetups() {
+  if (setupWindow) return;
+  try {
+    const result = await requestJson("GET", "/api/downloads?limit=200");
+    const pending = (result.downloads || []).find(task => task.status === "browser_pending" && task.metadata?.browser_handoff_id);
+    if (pending) await showSetupPopup(pending);
+  } catch (_) {}
+}
+function closeSetup(resolved = true) {
+  setupResolved = resolved;
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.close();
+}
 
-  const name = 'favicon-256.png';
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'static', name);
-  }
-  return path.join(__dirname, '..', 'static', name);
+function formatSpeed(value) {
+  const bytes = Number(value || 0);
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB/s`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB/s`;
+  return `${bytes.toFixed(0)} B/s`;
+}
+function notifyCompletion(task) {
+  if (!Notification.isSupported()) return;
+  const notification = new Notification({
+    title: "Download complete",
+    body: task.filename || "File downloaded",
+    icon: iconPath(),
+    silent: false,
+  });
+  notification.on("click", () => {
+    void requestJson("POST", `/api/downloads/${encodeURIComponent(task.id)}/open`, {}).catch(() => {});
+    showMainWindow();
+  });
+  notification.show();
+}
+async function pollTasks() {
+  try {
+    const result = await requestJson("GET", "/api/downloads?limit=200", null, 5000);
+    const downloads = result.downloads || [];
+    lastActive = downloads.filter(task => task.status === "running").length;
+    lastSpeed = downloads.reduce((sum, task) => sum + Number(task.speed_bytes_per_sec || 0), 0);
+    if (tray) tray.setToolTip(lastActive ? `Lumi DM · ↓ ${formatSpeed(lastSpeed)} · ${lastActive} active` : "Lumi DM");
+    if (!baselineReady) {
+      for (const task of downloads) taskBaseline.set(String(task.id), String(task.status || ""));
+      baselineReady = true;
+    } else {
+      const liveIds = new Set();
+      for (const task of downloads) {
+        const id = String(task.id);
+        const status = String(task.status || "");
+        const previous = taskBaseline.get(id);
+        liveIds.add(id);
+        if (status === "completed" && previous && ACTIVE_STATES.has(previous)) notifyCompletion(task);
+        taskBaseline.set(id, status);
+      }
+      for (const id of taskBaseline.keys()) if (!liveIds.has(id)) taskBaseline.delete(id);
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      const running = downloads.filter(task => task.status === "running");
+      if (running.length) {
+        const average = running.reduce((sum, task) => sum + Number(task.progress_percent || 0), 0) / running.length;
+        mainWindow.setProgressBar(average / 100);
+      } else mainWindow.setProgressBar(-1);
+    }
+  } catch (_) {}
 }
 
 function rebuildTrayMenu() {
   if (!tray) return;
-  const startEnabled = getStartupEnabled();
-  const ctx = Menu.buildFromTemplate([
-    { label: 'Lumi DM', enabled: false },
-    { type: 'separator' },
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Lumi DM", enabled: false },
+    { type: "separator" },
+    { label: "Open Lumi Manager", click: showMainWindow },
+    { label: "Show connection widget", click: showWidget },
+    { type: "separator" },
     {
-      label: 'Show',
-      click: () => {
-        if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-        else createWindow();
-        hideWidget();
-      },
+      label: "Run at Windows startup",
+      type: "checkbox",
+      checked: getStartupEnabled(),
+      click: item => setStartupEnabled(item.checked),
     },
-    { type: 'separator' },
-    {
-      label: 'Run at Windows startup',
-      type: 'checkbox',
-      checked: startEnabled,
-      click: (item) => setStartupEnabled(item.checked),
-    },
-    { type: 'separator' },
-    { label: 'Quit', click: () => { isQuitting = true; app.quit(); } },
-  ]);
-  tray.setContextMenu(ctx);
+    { type: "separator" },
+    { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
+  ]));
 }
-
 function createTray() {
-  const icon = nativeImage.createFromPath(getIconPath());
-  tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon);
-  tray.setToolTip('Lumi DM');
-
-  // Single click → show speed balloon
-  tray.on('click', () => {
-    if (process.platform === 'win32') {
-      tray.displayBalloon({
-        title:    'Lumi DM',
-        content:  _lastActive > 0
-          ? `${_lastActive} active  ·  ↓ ${fmtSpeed(_lastSpeed)}`
-          : `↓ ${fmtSpeed(_lastSpeed)}  —  No active downloads`,
-        iconType: 'info',
-      });
-    } else {
-      // macOS / Linux: open main window on click
-      if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-      else createWindow();
-      hideWidget();
-    }
-  });
-
-  // Double click → open main window
-  tray.on('double-click', () => {
-    if (mainWindow) { mainWindow.show(); mainWindow.focus(); }
-    else createWindow();
-    hideWidget();
-  });
-
+  const image = nativeImage.createFromPath(iconPath());
+  tray = new Tray(image.isEmpty() ? nativeImage.createEmpty() : image);
+  tray.setToolTip("Lumi DM");
+  tray.on("click", showWidget);
+  tray.on("double-click", showMainWindow);
   rebuildTrayMenu();
 }
 
-// ── Extension prompt ──────────────────────────────────────────────────────────
-
-function showExtensionPrompt() {
-  const prefs = loadPrefs();
-  if (prefs.extPromptDismissed) return;
-  dialog.showMessageBox(mainWindow, {
-    type: 'info',
-    title: 'Install the Browser Extension',
-    message: 'Get one-click downloads from any webpage',
-    detail:
-      'The Lumi DM browser extension lets you right-click any link, ' +
-      'torrent, or video URL and send it directly to this app.\n\n' +
-      'Chrome / Edge / Brave:\n' +
-      '  1. Open chrome://extensions\n' +
-      '  2. Enable Developer mode\n' +
-      '  3. Click "Load unpacked" → select the browser-extension folder\n\n' +
-      'Firefox:\n' +
-      '  1. Open about:debugging → This Firefox\n' +
-      '  2. Load Temporary Add-on → select browser-extension/manifest.json',
-    buttons: ['Open Extension Folder', 'Not Now', "Don't Ask Again"],
-    defaultId: 0, cancelId: 1,
-  }).then(({ response }) => {
-    if (response === 0) shell.openPath(EXT_DIR);
-    if (response === 2) { const p = loadPrefs(); p.extPromptDismissed = true; savePrefs(p); }
+function registerIpc() {
+  ipcMain.handle("pick-folder", async event => {
+    const owner = BrowserWindow.fromWebContents(event.sender) || mainWindow || BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(owner, {
+      title: "Choose download folder",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.canceled ? null : result.filePaths[0];
   });
-}
-
-function maybeShowExtensionPrompt() {
-  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return;
-  showExtensionPrompt();
-}
-
-// ── App menu ──────────────────────────────────────────────────────────────────
-
-function buildMenu() {
-  const startEnabled = getStartupEnabled();
-  Menu.setApplicationMenu(Menu.buildFromTemplate([
-    {
-      label: 'File',
-      submenu: [
-        { label: 'Open Downloads Folder', click: () => shell.openPath(app.getPath('downloads')) },
-        { type: 'separator' },
-        {
-          label: 'Run at Startup', type: 'checkbox', checked: startEnabled,
-          click: (item) => setStartupEnabled(item.checked),
-        },
-        { type: 'separator' },
-        { label: 'Quit', accelerator: 'CmdOrCtrl+Q', click: () => { isQuitting = true; app.quit(); } },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' }, { role: 'forceReload' },
-        { type: 'separator' }, { role: 'toggleDevTools' },
-        { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
-        { type: 'separator' }, { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'Install Browser Extension',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info', title: 'Install Browser Extension',
-              message: 'Add the extension to your browser',
-              detail:
-                'Chrome / Edge / Brave:\n' +
-                '  1. Go to chrome://extensions\n' +
-                '  2. Enable Developer mode\n' +
-                '  3. Load unpacked → select the browser-extension folder\n\n' +
-                'Firefox:\n' +
-                '  1. Go to about:debugging → This Firefox\n' +
-                '  2. Load Temporary Add-on → select manifest.json',
-              buttons: ['Open Extension Folder', 'Close'], defaultId: 0,
-            }).then(({ response }) => { if (response === 0) shell.openPath(EXT_DIR); });
-          },
-        },
-        { type: 'separator' },
-        { label: 'Open Extension Folder', click: () => shell.openPath(EXT_DIR) },
-      ],
-    },
-  ]));
-}
-
-// ── Main window ───────────────────────────────────────────────────────────────
-
-function createWindow(startHidden = false) {
-  mainWindow = new BrowserWindow({
-    width: 820, height: 580, minWidth: 680, minHeight: 460,
-    center: true, show: !startHidden,
-    title: 'Reminal Download Manager',
-    icon: getIconPath(),
-    webPreferences: {
-      contextIsolation: true,
-      preload: path.join(__dirname, 'preload-main.js'),
-    },
-    backgroundColor: '#111317',
+  ipcMain.handle("ttg-window-control", (event, action) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window || window.isDestroyed()) return { ok: false, maximized: false };
+    if (action === "minimize") window.minimize();
+    if (action === "maximize") window.isMaximized() ? window.unmaximize() : window.maximize();
+    if (action === "close") window.close();
+    return { ok: true, maximized: window.isMaximized() };
   });
-
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
+  ipcMain.handle("ttg-window-state", event => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+    return {
+      maximized: Boolean(window && !window.isDestroyed() && window.isMaximized()),
+      focused: Boolean(window && !window.isDestroyed() && window.isFocused()),
+    };
   });
+  ipcMain.handle("ttg-app-info", () => ({
+    name: app.getName(),
+    version: app.getVersion(),
+    platform: process.platform,
+    architecture: process.arch,
+    publisher: "THETECHGUY DIGITAL SOLUTIONS",
+    website: "https://thetechguyds.com/tools",
+  }));
 
-  // Minimize → show mini widget
-  mainWindow.on('minimize', () => showWidget());
-
-  // Restore / focus → hide mini widget
-  mainWindow.on('restore', () => hideWidget());
-  mainWindow.on('focus',   () => hideWidget());
-
-  // Close → hide to tray + show mini widget
-  mainWindow.on('close', (e) => {
-    if (!isQuitting) {
-      e.preventDefault();
-      mainWindow.hide();
-      showWidget();
-      if (tray && process.platform === 'win32') {
-        const p = loadPrefs();
-        if (!p.trayBalloonShown) {
-          tray.displayBalloon({
-            title:    'Lumi DM',
-            content:  'Running in the background. Right-click the tray icon to quit.',
-            iconType: 'info',
-          });
-          savePrefs({ ...p, trayBalloonShown: true });
-        }
-      }
+  ipcMain.handle("v5-desktop-settings-get", () => ({ ...readDesktopPrefs(), displays: displaysForUi() }));
+  ipcMain.handle("v5-desktop-settings-save", (_event, value) => {
+    const next = writeDesktopPrefs(value);
+    widgetExpanded = false;
+    if (next.visible === false) hideWidget(); else showWidget();
+    widgetWindow?.webContents.send("v5-settings-changed", next);
+    return { ...next, displays: displaysForUi() };
+  });
+  ipcMain.on("v5-widget-show", showWidget);
+  ipcMain.on("v5-widget-show-main", showMainWindow);
+  ipcMain.handle("v5-widget-snapshot", widgetSnapshot);
+  ipcMain.handle("v5-widget-toggle", () => {
+    widgetExpanded = !widgetExpanded;
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      widgetWindow.setFocusable(widgetExpanded);
+      applyWidgetBounds();
+      widgetWindow.webContents.send("v5-expanded", widgetExpanded);
+      widgetExpanded ? widgetWindow.show() : widgetWindow.showInactive();
     }
+    return widgetExpanded;
   });
-
-  mainWindow.on('show', () => hideWidget());
-  mainWindow.on('closed', () => { mainWindow = null; });
-
-  if (startHidden) {
-    mainWindow.once('show', () => setTimeout(maybeShowExtensionPrompt, 750));
-  }
-
-  const serverUrl = 'http://127.0.0.1:7000';
-  waitForServer(serverUrl, (ok) => {
-    if (ok) {
-      mainWindow.loadURL(serverUrl);
-    } else {
-      const staticDir = app.isPackaged
-        ? path.join(process.resourcesPath, 'static')
-        : path.join(__dirname, '..', 'static');
-      mainWindow.loadFile(path.join(staticDir, 'index.html'));
-    }
-    if (!startHidden) {
-      setTimeout(maybeShowExtensionPrompt, 3000);
-    }
+  ipcMain.handle("v5-widget-action", async (_event, action, taskId = "") => {
+    if (action === "pause-all") return requestJson("POST", "/api/downloads/pause-all", {});
+    if (action === "resume-all") return requestJson("POST", "/api/downloads/resume-all", {});
+    if (action === "pause" && taskId) return requestJson("POST", `/api/downloads/${encodeURIComponent(taskId)}/pause`, {});
+    if (action === "resume" && taskId) return requestJson("POST", `/api/downloads/${encodeURIComponent(taskId)}/resume`, {});
+    if (action === "cancel" && taskId) return requestJson("POST", `/api/downloads/${encodeURIComponent(taskId)}/cancel`, {});
+    if (action === "open" && taskId) return requestJson("POST", `/api/downloads/${encodeURIComponent(taskId)}/open`, {});
+    if (action === "main") { showMainWindow(); return { ok: true }; }
+    return { ok: false };
+  });
+  ipcMain.handle("v5-setup-data", event => setupData.get(event.sender.id) || null);
+  ipcMain.handle("v5-setup-pick-folder", async event => {
+    const owner = BrowserWindow.fromWebContents(event.sender) || setupWindow;
+    const result = await dialog.showOpenDialog(owner, {
+      title: "Choose download folder",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
+  ipcMain.handle("v5-setup-confirm", async (event, value) => {
+    const data = setupData.get(event.sender.id);
+    if (!data?.handoffId) throw new Error("Setup handoff unavailable");
+    const result = await requestJson("POST", `/api/v5/browser/handoffs/${encodeURIComponent(data.handoffId)}/confirm`, value || {});
+    closeSetup(true);
+    return result;
+  });
+  ipcMain.handle("v5-setup-browser", async event => {
+    const data = setupData.get(event.sender.id);
+    if (!data?.handoffId) throw new Error("Setup handoff unavailable");
+    const result = await requestJson("POST", `/api/v5/browser/handoffs/${encodeURIComponent(data.handoffId)}/browser`, {});
+    closeSetup(true);
+    return result;
+  });
+  ipcMain.handle("v5-setup-cancel", async event => {
+    const data = setupData.get(event.sender.id);
+    if (!data?.handoffId) throw new Error("Setup handoff unavailable");
+    const result = await requestJson("POST", `/api/v5/browser/handoffs/${encodeURIComponent(data.handoffId)}/cancel`, {});
+    closeSetup(true);
+    return result;
   });
 }
 
-// ── App lifecycle ─────────────────────────────────────────────────────────────
-
-app.on('ready', () => {
+app.on("second-instance", (_event, argv) => { if (!isHiddenLaunch(argv)) showMainWindow(); });
+app.whenReady().then(() => {
   if (!gotSingleInstanceLock) return;
-  buildMenu();
+  Menu.setApplicationMenu(null);
+  registerIpc();
   createTray();
-  startPythonServer();
-  const startHidden = isStartupLaunch();
-  createWindow(startHidden);
-  // Start polling server 4 s after launch so server has time to boot
-  setTimeout(() => setInterval(pollServer, 2000), 4000);
+  serverSupervisor.start();
+  createMainWindow(isStartupLaunch());
+  createWidget();
+  showWidget();
+  updater = new UpdateManager({
+    onStatus: status => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send("v5-update-status", status);
+      }
+    },
+  });
+  ipcMain.handle("v5-update-check", (_event, manual) => updater.check(Boolean(manual)));
+  void updater.check(false);
+  pollingTimer = setInterval(() => void pollTasks(), 1800);
+  setupTimer = setInterval(() => void scanPendingSetups(), 700);
+  void pollTasks();
 });
-
-app.on('before-quit', () => {
+app.on("before-quit", () => {
   isQuitting = true;
-  stopPythonServer();
+  if (pollingTimer) clearInterval(pollingTimer);
+  if (setupTimer) clearInterval(setupTimer);
+  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.destroy();
+  if (setupWindow && !setupWindow.isDestroyed()) setupWindow.destroy();
+  serverSupervisor.stop();
 });
-
-app.on('window-all-closed', () => {
-  // Keep running in tray — user must quit via tray menu or File > Quit
-});
-
-app.on('activate', () => {
-  if (mainWindow === null) createWindow();
-  else { mainWindow.show(); mainWindow.focus(); hideWidget(); }
-});
+app.on("window-all-closed", () => {});
+app.on("activate", showMainWindow);
