@@ -32,12 +32,14 @@ jobs:
           python -m pip install --disable-pip-version-check -q -r requirements.txt pytest
 
       - name: Compile Python source
-        run: python -m compileall -q core server.py tests
+        run: python -m compileall -q core server.py scripts tests
 
       - name: Validate manifests and packaging configuration
         run: |
           python -m json.tool browser-extension/manifest.json >/dev/null
           python -m json.tool assets/branding-manifest.json >/dev/null
+          python -m json.tool assets/ttg-app-shell-standard.json >/dev/null
+          python -m json.tool assets/builder-github-release-contract.json >/dev/null
           python -m json.tool electron/package.json >/dev/null
 
       - name: Validate browser extension source
@@ -64,6 +66,8 @@ jobs:
           node --check electron/preload-widget-v5.js
           node --check electron/preload-confirm-v5.js
           node --check static/app-v5.js
+          node --check static/app-os-v5.js
+          node --check static/ttg-app-shell-v1.js
 
       - name: Run Lumi runtime proofs
         shell: bash
@@ -86,7 +90,7 @@ jobs:
               echo "Pull request: #$PR_NUMBER"
               echo
               echo '```text'
-              tail -n 260 /tmp/lumi-pytest.log
+              tail -n 300 /tmp/lumi-pytest.log
               echo '```'
             } > /tmp/lumi-proof-issue.md
 
@@ -142,7 +146,7 @@ jobs:
               echo "### Sergeant primary review finding"
               echo
               echo '```text'
-              tail -n 260 /tmp/lumi-sergeant.log
+              tail -n 300 /tmp/lumi-sergeant.log
               echo '```'
             } > /tmp/lumi-sergeant-comment.md
             gh pr comment "$PR_NUMBER" --body-file /tmp/lumi-sergeant-comment.md
