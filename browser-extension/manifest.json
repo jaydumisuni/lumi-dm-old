@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Lumi Download Manager",
   "short_name": "Lumi DM",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "description": "Securely stage browser downloads in Lumi, choose options in the corner popup, and safely fall back to the browser.",
   "permissions": [
     "alarms",
