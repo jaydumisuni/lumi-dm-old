@@ -1,0 +1,37 @@
+name: Export clean Lumi source review
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - .export-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout review workflow
+        uses: actions/checkout@v4
+
+      - name: Checkout approved clean Lumi tree
+        uses: actions/checkout@v4
+        with:
+          repository: jaydumisuni/lumi-dm-old
+          ref: 67daf3a4e3e95c81738da7bb5eb84b4cbe4186a4
+          path: source
+
+      - name: Create source-only ZIP
+        run: python tools/export_clean_lumi_source.py
+
+      - name: Upload clean source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lumi-DM-clean-source
+          path: |
+            export/Lumi-DM-clean-source.zip
+            export/Lumi-DM-clean-source.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
