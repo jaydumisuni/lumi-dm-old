@@ -1,0 +1,251 @@
+name: Export clean Lumi source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/export-clean-lumi-source.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout approved clean Lumi tree
+        uses: actions/checkout@v4
+        with:
+          ref: 67daf3a4e3e95c81738da7bb5eb84b4cbe4186a4
+          path: source
+
+      - name: Create source-only repository package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export/Lumi-DM
+          rsync -a source/ export/Lumi-DM/ \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='scripts/' \
+            --exclude='docs/' \
+            --exclude='dist/' \
+            --exclude='build/' \
+            --exclude='release/' \
+            --exclude='out/' \
+            --exclude='installer_output/' \
+            --exclude='build_config/' \
+            --exclude='node_modules/' \
+            --exclude='builder_cache/' \
+            --exclude='import_cache/' \
+            --exclude='test-output/' \
+            --exclude='*.pyc' \
+            --exclude='__pycache__/'
+
+          cd export/Lumi-DM
+          rm -f BUILD.md DEVELOPMENT.md build.bat build.ps1 package.json package-lock.json
+          rm -f electron/package.json electron/package-lock.json electron/prepare-icons.py electron/installer.nsh
+          find . -type d \( -name '__pycache__' -o -name '.pytest_cache' -o -name '.mypy_cache' \) -prune -exec rm -rf {} +
+          find . -type f \( -name '*.pyc' -o -name '*.pyo' -o -name '*.log' \) -delete
+
+          cat > README.md <<'EOF'
+          # Lumi DM
+
+          **Lumi DM** is the THETECHGUY DIGITAL SOLUTIONS multi-source download manager.
+
+          ## Official download
+
+          End users download Lumi only from the repository's **GitHub Releases** page or from:
+
+          **https://thetechguyds.com/tools**
+
+          This repository does not provide a separate desktop-wrapper download, a run-from-source package, or a self-build installer path.
+
+          ## Build and release ownership
+
+          Lumi contains application source and the `techguy-build.json` project contract only.
+
+          **THETECHGUY Software Builder** owns:
+
+          - Electron and Python dependency preparation;
+          - temporary packaging workspaces;
+          - `LUMIDM-server.exe` creation;
+          - desktop application packaging;
+          - the THETECHGUY graphical installer;
+          - Windows uninstall registration;
+          - signing, SHA-256 evidence and GitHub Release publishing.
+
+          No public installer is produced directly from this repository.
+
+          **ONE BRAND • ALL SOLUTIONS**
+          EOF
+
+          cat > techguy-build.json <<'EOF'
+          {
+            "schemaVersion": 2,
+            "company": "THETECHGUY DIGITAL SOLUTIONS",
+            "domain": "thetechguyds.com",
+            "website": "https://thetechguyds.com/tools",
+            "appName": "Lumi DM",
+            "appVersion": "1.0.0",
+            "projectType": "electron-source",
+            "entryFile": "electron/main.js",
+            "logo": "static/favicon-96.png",
+            "icon": "assets/windows/Lumi-DM.ico",
+            "description": "Fast multi-source download manager with browser capture, media, torrents, firmware, operating-system images and technician workflows.",
+            "repository": "jaydumisuni/Lumi-DM",
+            "distribution": {
+              "publicDownloads": "github-releases-only",
+              "runFromSourceSupported": false,
+              "desktopWrapperDownload": false,
+              "selfBuildSupported": false
+            },
+            "output": {
+              "dist": "dist/electron",
+              "installer": "installer_output"
+            },
+            "targets": ["windows-exe", "windows-installer"],
+            "installer": {
+              "template": "thetechguy-neon",
+              "windowSize": "standard",
+              "logoSize": "medium",
+              "runAsAdmin": true,
+              "installBase": "C:\\Program Files\\THETECHGUY DIGITAL SOLUTIONS",
+              "visitWebsiteChecked": true,
+              "runAfterInstallChecked": true,
+              "desktopShortcutChecked": true,
+              "startMenuShortcutChecked": true,
+              "checkDependenciesOnStart": true,
+              "activationPageInInstaller": false,
+              "requireCustomGraphicalInstaller": true,
+              "rejectVendorInstallerArtifacts": true,
+              "requireRegisteredUninstall": true
+            },
+            "electron": {
+              "builderOwnsPackaging": true,
+              "sourceRoot": "electron",
+              "appId": "com.lumi.dm",
+              "electronVersion": "^29.0.0",
+              "electronBuilderVersion": "^24.0.0",
+              "pythonSidecars": [
+                {
+                  "id": "lumi-server",
+                  "enabled": true,
+                  "entry": "server.py",
+                  "name": "LUMIDM-server",
+                  "requirements": "requirements.txt",
+                  "output": "dist/server",
+                  "extraRequirements": ["libtorrent==2.0.13", "imageio-ffmpeg>=0.5,<1"],
+                  "hiddenImports": ["libtorrent"],
+                  "collectAll": ["yt_dlp", "cryptography", "psutil", "imageio_ffmpeg"],
+                  "collectSubmodules": ["core"]
+                }
+              ]
+            },
+            "dependencies": [
+              {
+                "id": "sevenzip",
+                "name": "7-Zip archive engine",
+                "kind": "sevenzip",
+                "required": false,
+                "installMode": "manual-if-missing",
+                "note": "Optional enhancement for RAR, 7z and multipart archive extraction. Core downloads remain fully functional without it."
+              }
+            ],
+            "releaseControls": {
+              "updateCheck": true,
+              "loginRequired": false,
+              "subscriptionRequired": false,
+              "onlineRequired": false
+            },
+            "githubRelease": {
+              "repository": "jaydumisuni/Lumi-DM",
+              "tag": "v1.0.0",
+              "title": "Lumi DM 1.0.0",
+              "notes": "",
+              "targetCommitish": "main",
+              "prerelease": false,
+              "replaceSameNameAssets": true,
+              "generateSha256Sidecars": true,
+              "tokenStoredInProject": false,
+              "tokenEnvironmentVariables": ["GITHUB_TOKEN", "GH_TOKEN"]
+            },
+            "sourceBoundary": {
+              "containsApplicationSource": true,
+              "containsBuildEnvironment": false,
+              "containsInstallerEngine": false,
+              "containsSigningKeys": false,
+              "builderRepository": "jaydumisuni/thetechguy-software-builder"
+            }
+          }
+          EOF
+
+          cat > SOURCE-MANIFEST.json <<'EOF'
+          {
+            "schema_version": 1,
+            "package": "Lumi-DM-clean-source",
+            "source_commit": "67daf3a4e3e95c81738da7bb5eb84b4cbe4186a4",
+            "public_downloads": "GitHub Releases only",
+            "builder_owned": [
+              "dependency preparation",
+              "Electron packaging",
+              "Python sidecar packaging",
+              "installer",
+              "uninstall registration",
+              "signing",
+              "release publishing"
+            ],
+            "excluded": [
+              "run-from-source instructions",
+              "desktop-wrapper download",
+              "npm build scripts",
+              "electron-builder configuration",
+              "stock installer configuration",
+              "generated artifacts",
+              "old Reminal compatibility files"
+            ]
+          }
+          EOF
+
+          cat > .gitignore <<'EOF'
+          __pycache__/
+          *.py[cod]
+          .pytest_cache/
+          node_modules/
+          builder_cache/
+          build_config/
+          dist/
+          build/
+          release/
+          out/
+          installer_output/
+          test-output/
+          *.log
+          EOF
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          json.loads(Path('techguy-build.json').read_text(encoding='utf-8'))
+          json.loads(Path('SOURCE-MANIFEST.json').read_text(encoding='utf-8'))
+          assert not Path('electron/package.json').exists()
+          assert not Path('.github').exists()
+          assert not Path('scripts').exists()
+          assert not Path('BUILD.md').exists()
+          assert not Path('DEVELOPMENT.md').exists()
+          PY
+
+          cd ..
+          zip -qr Lumi-DM-clean-source.zip Lumi-DM
+          sha256sum Lumi-DM-clean-source.zip > Lumi-DM-clean-source.zip.sha256
+
+      - name: Upload clean source package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lumi-DM-clean-source
+          path: |
+            export/Lumi-DM-clean-source.zip
+            export/Lumi-DM-clean-source.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
