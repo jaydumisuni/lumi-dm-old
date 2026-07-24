@@ -1,1 +1,2 @@
-Export the clean Lumi source package for transfer to jaydumisuni/Lumi-DM.
+Export the final clean Lumi source package for transfer to jaydumisuni/Lumi-DM.
+Remove all run-from-source instructions, desktop-wrapper downloads and local build launchers.
