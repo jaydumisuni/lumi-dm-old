@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   export:
@@ -249,3 +249,18 @@ jobs:
             export/Lumi-DM-clean-source.zip.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish temporary transfer branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan clean-source-export
+          git rm -rf .
+          cp ../export/Lumi-DM-clean-source.zip .
+          cp ../export/Lumi-DM-clean-source.zip.sha256 .
+          git add Lumi-DM-clean-source.zip Lumi-DM-clean-source.zip.sha256
+          git commit -m "Publish clean Lumi source ZIP"
+          git push --force origin HEAD:clean-source-export
