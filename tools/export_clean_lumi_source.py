@@ -13,14 +13,16 @@ ZIP_PATH = OUTPUT_ROOT / "Lumi-DM-clean-source.zip"
 SOURCE_COMMIT = "67daf3a4e3e95c81738da7bb5eb84b4cbe4186a4"
 
 EXCLUDED_DIRS = {
-    ".git", ".github", "scripts", "docs", "dist", "build", "release", "out",
+    ".git", ".github", "scripts", "tools", "docs", "dist", "build", "release", "out",
     "installer_output", "build_config", "node_modules", "builder_cache",
     "import_cache", "test-output", "__pycache__", ".pytest_cache", ".mypy_cache",
 }
 EXCLUDED_FILES = {
     "BUILD.md", "DEVELOPMENT.md", "build.bat", "build.ps1", "package.json",
     "package-lock.json", "electron/package.json", "electron/package-lock.json",
-    "electron/prepare-icons.py", "electron/installer.nsh",
+    "electron/prepare-icons.py", "electron/installer.nsh", "electron/README.md",
+    "android/gradlew", "android/gradlew.bat", "android/local.properties",
+    "assets/builder-github-release-contract.json",
 }
 
 
@@ -44,6 +46,13 @@ def main() -> None:
         path = TARGET / relative
         if path.is_file():
             path.unlink()
+    for build_launcher in TARGET.glob("BUILD-*"):
+        if build_launcher.is_file():
+            build_launcher.unlink()
+    shutil.rmtree(TARGET / "android" / "gradle", ignore_errors=True)
+    for duplicate_icons in (TARGET / "android").glob("mipmap-*"):
+        if duplicate_icons.is_dir():
+            shutil.rmtree(duplicate_icons)
     for path in list(TARGET.rglob("*")):
         if path.is_file() and (path.suffix in {".pyc", ".pyo", ".log"}):
             path.unlink()
@@ -59,15 +68,15 @@ End users download Lumi only from the repository's **GitHub Releases** page or f
 
 **https://thetechguyds.com/tools**
 
-This repository does not provide a separate desktop-wrapper download, a run-from-source package, or a self-build installer path.
+This repository does not provide a separate desktop-wrapper download, a run-from-source package, local build launchers or a self-build installer path.
 
 ## Build and release ownership
 
 Lumi contains application source and the `techguy-build.json` project contract only.
 
-**THETECHGUY Software Builder** owns Electron and Python dependency preparation, temporary packaging workspaces, `LUMIDM-server.exe` creation, desktop packaging, the THETECHGUY graphical installer, Windows uninstall registration, signing, SHA-256 evidence and GitHub Release publishing.
+**THETECHGUY Software Builder** owns Electron, Python, Android, Apple and Linux dependency preparation; temporary packaging workspaces; `LUMIDM-server.exe` creation; desktop and mobile packaging; the THETECHGUY graphical installer; Windows uninstall registration; signing; SHA-256 evidence; and GitHub Release publishing.
 
-No public installer is produced directly from this repository.
+No public installer or application package is produced directly from this repository.
 
 **ONE BRAND • ALL SOLUTIONS**
 """)
@@ -79,7 +88,7 @@ No public installer is produced directly from this repository.
         "website": "https://thetechguyds.com/tools",
         "appName": "Lumi DM",
         "appVersion": "1.0.0",
-        "projectType": "electron-source",
+        "projectType": "multi-platform-source",
         "entryFile": "electron/main.js",
         "logo": "static/favicon-96.png",
         "icon": "assets/windows/Lumi-DM.ico",
@@ -89,6 +98,7 @@ No public installer is produced directly from this repository.
             "publicDownloads": "github-releases-only",
             "runFromSourceSupported": False,
             "desktopWrapperDownload": False,
+            "localBuildLaunchers": False,
             "selfBuildSupported": False,
         },
         "output": {"dist": "dist/electron", "installer": "installer_output"},
@@ -165,17 +175,18 @@ No public installer is produced directly from this repository.
     write_text(TARGET / "techguy-build.json", json.dumps(config, indent=2))
 
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2,
         "package": "Lumi-DM-clean-source",
         "source_commit": SOURCE_COMMIT,
         "public_downloads": "GitHub Releases only",
         "builder_owned": [
-            "dependency preparation", "Electron packaging", "Python sidecar packaging",
+            "all dependency preparation", "all platform packaging", "Python sidecar packaging",
             "installer", "uninstall registration", "signing", "release publishing",
         ],
         "excluded": [
-            "run-from-source instructions", "desktop-wrapper download", "npm build scripts",
-            "electron-builder configuration", "stock installer configuration",
+            "run-from-source instructions", "desktop-wrapper download", "local build launchers",
+            "npm build scripts", "electron-builder configuration", "platform wrapper binaries",
+            "machine-specific build settings", "stock installer configuration",
             "generated artifacts", "old Reminal compatibility files",
         ],
     }
@@ -194,13 +205,24 @@ out/
 installer_output/
 test-output/
 *.log
+android/local.properties
 """)
 
-    assert not (TARGET / "electron/package.json").exists()
-    assert not (TARGET / ".github").exists()
-    assert not (TARGET / "scripts").exists()
-    assert not (TARGET / "BUILD.md").exists()
-    assert not (TARGET / "DEVELOPMENT.md").exists()
+    forbidden = [
+        TARGET / "electron" / "package.json",
+        TARGET / "electron" / "README.md",
+        TARGET / ".github",
+        TARGET / "scripts",
+        TARGET / "tools",
+        TARGET / "BUILD.md",
+        TARGET / "DEVELOPMENT.md",
+        TARGET / "android" / "gradlew",
+        TARGET / "android" / "gradlew.bat",
+        TARGET / "android" / "local.properties",
+        TARGET / "android" / "gradle",
+    ]
+    assert not any(path.exists() for path in forbidden), forbidden
+    assert not list(TARGET.glob("BUILD-*"))
     json.loads((TARGET / "techguy-build.json").read_text(encoding="utf-8"))
 
     with zipfile.ZipFile(ZIP_PATH, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
